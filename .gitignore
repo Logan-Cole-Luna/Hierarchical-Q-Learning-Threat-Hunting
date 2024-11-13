@@ -1,0 +1,25 @@
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+
+# Ignore virtual environment folder if present (you may name it venv or env)
+venv/
+env/
+
+# Ignore Jupyter Notebook checkpoints if any notebooks are added
+.ipynb_checkpoints/
+
+# Ignore everything in the data/ directory
+data/*
+
+# But keep the .gitkeep file
+!data/.gitkeep
+
+# Ignore temporary files
+*.tmp
+*.log
+*.bak
+
+# Ignore operating system-specific files
+.DS_Store
+Thumbs.db

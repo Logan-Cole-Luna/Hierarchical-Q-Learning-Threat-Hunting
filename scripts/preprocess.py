@@ -1,15 +1,59 @@
 # scripts/preprocess.py
 
-import pandas as pd
+"""
+Data Preprocessing Script for Hierarchical Q-Learning Threat Hunting
+
+This script preprocesses network intrusion detection datasets for hierarchical Q-Learning models.
+It handles data loading, cleaning, feature selection, label mapping, normalization, and subset creation.
+Both High-Level and Low-Level labels are separated and saved for subsequent training and evaluation.
+
+Usage:
+    python preprocess.py
+
+Dependencies:
+    - pandas
+    - numpy
+    - scikit-learn
+"""
+
 import os
-import json
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-import numpy as np
 import sys
+import json
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler, label_binarize
+from sklearn.model_selection import train_test_split
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
 
 class DataPreprocessor:
+    """
+    Handles preprocessing of network intrusion detection data for hierarchical Q-Learning models.
+
+    Attributes:
+        data_dir (str): Directory containing raw CSV data files.
+        high_level_features (list): Feature names for the High-Level Q-Network.
+        low_level_features (list): Feature names for the Low-Level Q-Network.
+        label_column (str): Column name containing labels.
+        scaler_high (StandardScaler): Scaler for High-Level features.
+        scaler_low (StandardScaler): Scaler for Low-Level features.
+        data (pd.DataFrame): Combined and cleaned dataset.
+        mappings (dict): Mappings for categories and anomalies.
+    """
+
     def __init__(self, data_dir, high_level_features, low_level_features, label_column='Label'):
+        """
+        Initializes the DataPreprocessor with specified parameters.
+
+        Args:
+            data_dir (str): Directory containing raw CSV data files.
+            high_level_features (list): Feature names for the High-Level Q-Network.
+            low_level_features (list): Feature names for the Low-Level Q-Network.
+            label_column (str, optional): Column name containing labels. Defaults to 'Label'.
+        """
         self.data_dir = data_dir
         self.high_level_features = high_level_features
         self.low_level_features = low_level_features
@@ -17,273 +61,220 @@ class DataPreprocessor:
         self.scaler_high = StandardScaler()
         self.scaler_low = StandardScaler()
         self.data = None
-        self.X_high = None
-        self.X_low = None
-        self.y_category = None
-        self.y_anomaly = None
-        self.label_to_category = {}
-        self.label_to_anomaly = {}
-        self.category_to_id = {}
-        self.anomaly_to_id = {}
+        self.mappings = {
+            'category_to_id': {},
+            'anomaly_to_id': {}
+        }
 
     def load_data(self):
-        all_files = [f for f in os.listdir(self.data_dir) if f.endswith('.csv')]
-        if not all_files:
-            print(f"No CSV files found in directory: {self.data_dir}")
+        """
+        Loads and concatenates all CSV files from the data directory into a single DataFrame.
+        """
+        csv_files = [f for f in os.listdir(self.data_dir) if f.endswith('.csv')]
+        if not csv_files:
+            logging.error(f"No CSV files found in directory: {self.data_dir}")
             sys.exit(1)
+
         df_list = []
-        for file in all_files:
+        for file in csv_files:
             file_path = os.path.join(self.data_dir, file)
             try:
                 df = pd.read_csv(file_path, encoding='utf-8')
+                logging.info(f"Loaded {file} with shape {df.shape}")
             except UnicodeDecodeError:
-                # Fallback to a different encoding if utf-8 fails
                 df = pd.read_csv(file_path, encoding='ISO-8859-1')
-                print(f"Loaded {file} with ISO-8859-1 encoding due to UnicodeDecodeError.")
+                logging.warning(f"Loaded {file} with ISO-8859-1 encoding due to UnicodeDecodeError.")
             df_list.append(df)
-            print(f"Loaded {file} with shape {df.shape}")
+
         self.data = pd.concat(df_list, ignore_index=True)
-        print(f"Combined data shape: {self.data.shape}")
+        logging.info(f"Combined data shape: {self.data.shape}")
 
     def clean_data(self):
+        """
+        Cleans the dataset by handling missing values, removing duplicates, and standardizing column names.
+        """
+        # Standardize column names
+        self.data.columns = self.data.columns.str.strip()
+        logging.info("Standardized column names.")
+
         # Handle missing values
         missing_before = self.data.isnull().sum().sum()
         self.data.fillna(0, inplace=True)
         missing_after = self.data.isnull().sum().sum()
-        print(f"Missing values before: {missing_before}, after filling: {missing_after}")
+        logging.info(f"Handled missing values: before={missing_before}, after={missing_after}")
+
         # Remove duplicates
         initial_shape = self.data.shape
         self.data.drop_duplicates(inplace=True)
-        print(f"Data cleaned: Removed duplicates {initial_shape} -> {self.data.shape}")
-
-    def clean_column_names(self):
-        # Strip leading/trailing spaces and standardize column names
-        self.data.columns = [col.strip() for col in self.data.columns]
-        print(f"Cleaned column names: {self.data.columns.tolist()}")
-
-    def extract_unique_labels(self):
-        # Check if the label column exists
-        if self.label_column not in self.data.columns:
-            raise KeyError(f"'{self.label_column}' column not found in the dataset. Available columns: {self.data.columns.tolist()}")
-        
-        unique_labels = self.data[self.label_column].unique()
-        print(f"Unique labels found ({len(unique_labels)}): {unique_labels}")
-        return unique_labels
-
-    def extract_categories(self, unique_labels):
-        categories = set()
-        for label in unique_labels:
-            # Extract category by splitting the label string
-            if '_' in label:
-                category = label.split('_')[0]
-            else:
-                category = label
-            categories.add(category)
-        print(f"Unique categories extracted ({len(categories)}): {sorted(categories)}")
-        return sorted(list(categories))
-
-    def create_mappings(self, unique_labels, categories):
-        # Map categories to integers
-        self.category_to_id = {category: idx for idx, category in enumerate(categories)}
-        print(f"Category to ID mapping: {self.category_to_id}")
-        
-        # Map labels to integers
-        self.anomaly_to_id = {label: idx for idx, label in enumerate(unique_labels)}
-        print(f"Anomaly to ID mapping: {self.anomaly_to_id}")
-        
-        # Map labels to categories (as integers)
-        for label in unique_labels:
-            if '_' in label:
-                category = label.split('_')[0]
-            else:
-                category = label
-            category_id = self.category_to_id.get(category, -1)
-            self.label_to_category[label] = category_id
-            self.label_to_anomaly[label] = self.anomaly_to_id[label]
-        print("Label to Category and Anomaly mappings created.")
-
-    def map_labels(self):
-        # Apply mappings to the data
-        self.data['Category'] = self.data[self.label_column].map(self.label_to_category)
-        self.data['Anomaly'] = self.data[self.label_column].map(self.label_to_anomaly)
-        
-        # Remove any entries with unknown categories
-        num_unknown = self.data['Category'].isna().sum()
-        if num_unknown > 0:
-            print(f"Warning: {num_unknown} instances have unknown categories and will be removed.")
-            self.data = self.data.dropna(subset=['Category', 'Anomaly'])
-        
-        self.y_category = self.data['Category'].astype(int).values
-        self.y_anomaly = self.data['Anomaly'].astype(int).values
+        final_shape = self.data.shape
+        logging.info(f"Removed duplicates: {initial_shape} -> {final_shape}")
 
     def standardize_labels(self):
-        print("\nStandardizing Labels:")
-        # Replace '�' with '-' or another appropriate character
-        self.data[self.label_column] = self.data[self.label_column].str.replace('�', '-', regex=False)
-        print("Replaced '�' with '-' in labels.")
-
-    def remove_duplicate_columns(self):
-        print("\nRemoving Duplicate Columns:")
-        duplicated_columns = self.data.columns[self.data.columns.duplicated()]
-        if duplicated_columns.any():
-            self.data.drop(columns=duplicated_columns, inplace=True)
-            print(f"Removed duplicated columns: {duplicated_columns.tolist()}")
+        """
+        Standardizes label strings by replacing problematic characters.
+        """
+        if self.label_column in self.data.columns:
+            self.data[self.label_column] = self.data[self.label_column].str.replace('�', '-', regex=False)
+            logging.info("Standardized labels by replacing '�' with '-'.")
         else:
-            print("No duplicated columns found.")
+            logging.error(f"Label column '{self.label_column}' not found.")
+            sys.exit(1)
 
-    def select_features(self):
-        # Ensure features exist
-        missing_high = [feat for feat in self.high_level_features if feat not in self.data.columns]
-        missing_low = [feat for feat in self.low_level_features if feat not in self.data.columns]
-        if missing_high or missing_low:
-            raise ValueError(f"Missing features: {missing_high + missing_low}")
-        self.X_high = self.data[self.high_level_features].values.astype(float)
-        self.X_low = self.data[self.low_level_features].values.astype(float)
-        print("Features selected for high-level and low-level agents.")
+    def map_labels(self):
+        """
+        Maps categorical labels to integer IDs and separates them into categories and anomalies.
+        """
+        unique_labels = self.data[self.label_column].unique()
+        categories = sorted({label.split('_')[0] for label in unique_labels})
+        self.mappings['category_to_id'] = {category: idx for idx, category in enumerate(categories)}
+        self.mappings['anomaly_to_id'] = {label: idx for idx, label in enumerate(unique_labels)}
 
-    def convert_to_numeric(self):
-        print("\nConverting Features to Numeric:")
+        # Save mappings
+        os.makedirs('./data/mappings', exist_ok=True)
+        with open('./data/mappings/category_to_id.json', 'w') as f:
+            json.dump(self.mappings['category_to_id'], f, indent=4)
+        with open('./data/mappings/anomaly_to_id.json', 'w') as f:
+            json.dump(self.mappings['anomaly_to_id'], f, indent=4)
+        logging.info("Created and saved label mappings.")
+
+        # Map labels to categories and anomalies
+        self.data['Category'] = self.data[self.label_column].apply(
+            lambda x: self.mappings['category_to_id'][x.split('_')[0]]
+        )
+        self.data['Anomaly'] = self.data[self.label_column].map(self.mappings['anomaly_to_id'])
+
+        # Remove entries with unmapped labels
+        initial_shape = self.data.shape
+        self.data.dropna(subset=['Category', 'Anomaly'], inplace=True)
+        final_shape = self.data.shape
+        if initial_shape != final_shape:
+            logging.warning(f"Removed {initial_shape[0] - final_shape[0]} entries with unmapped labels.")
+
+    def convert_features(self):
+        """
+        Ensures all feature columns are numeric and handles conversion errors.
+        """
         for feature in self.high_level_features + self.low_level_features:
             if not pd.api.types.is_numeric_dtype(self.data[feature]):
                 self.data[feature] = pd.to_numeric(self.data[feature], errors='coerce').fillna(0)
-                print(f"Converted '{feature}' to numeric.")
+                logging.info(f"Converted feature '{feature}' to numeric.")
 
-    def handle_negative_values(self):
-        print("\nHandling Negative Values:")
+    def handle_negatives(self):
+        """
+        Sets negative values in High-Level features to zero.
+        """
         for feature in self.high_level_features:
-            if feature in self.data.columns:
-                num_neg = (self.data[feature] < 0).sum()
-                if num_neg > 0:
-                    self.data.loc[self.data[feature] < 0, feature] = 0
-                    print(f"Set {num_neg} negative values in '{feature}' to 0.")
+            negatives = (self.data[feature] < 0).sum()
+            if negatives > 0:
+                self.data.loc[self.data[feature] < 0, feature] = 0
+                logging.info(f"Set {negatives} negative values in '{feature}' to 0.")
 
     def apply_log_transform(self):
-        # Apply log1p (log(1 + x)) to handle zero values and reduce skewness
+        """
+        Applies log1p transformation to selected features to handle skewness.
+        """
         log_features = ['Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
                         'Flow Bytes/s', 'Flow Packets/s']
         for feature in log_features:
             if feature in self.data.columns:
-                # To prevent taking log of zero, ensure all values are >=0
                 self.data[feature] = self.data[feature].apply(lambda x: np.log1p(x) if x > 0 else 0)
-                print(f"Applied log1p transformation to '{feature}'")
-
-    def inspect_features(self):
-        print("\nInspecting Features for Anomalies:")
-        for idx, feature in enumerate(self.high_level_features):
-            col = self.X_high[:, idx]
-            num_inf = np.isinf(col).sum()
-            num_nan = np.isnan(col).sum()
-            max_val = np.max(col)
-            min_val = np.min(col)
-            print(f"High-Level Feature '{feature}': inf={num_inf}, NaN={num_nan}, min={min_val}, max={max_val}")
-
-        for idx, feature in enumerate(self.low_level_features):
-            col = self.X_low[:, idx]
-            num_inf = np.isinf(col).sum()
-            num_nan = np.isnan(col).sum()
-            max_val = np.max(col)
-            min_val = np.min(col)
-            print(f"Low-Level Feature '{feature}': inf={num_inf}, NaN={num_nan}, min={min_val}, max={max_val}")
+                logging.info(f"Applied log1p transformation to '{feature}'.")
 
     def clip_outliers(self, lower_percentile=1, upper_percentile=99):
-        print("\nClipping Outliers:")
-        for idx, feature in enumerate(self.high_level_features):
-            col = self.X_high[:, idx]
-            lower = np.percentile(col, lower_percentile)
-            upper = np.percentile(col, upper_percentile)
-            self.X_high[:, idx] = np.clip(col, lower, upper)
-            print(f"High-Level Feature '{feature}': clipped to [{lower}, {upper}]")
+        """
+        Clips outliers in High-Level and Low-Level features based on specified percentiles.
 
-        for idx, feature in enumerate(self.low_level_features):
-            col = self.X_low[:, idx]
-            lower = np.percentile(col, lower_percentile)
-            upper = np.percentile(col, upper_percentile)
-            self.X_low[:, idx] = np.clip(col, lower, upper)
-            print(f"Low-Level Feature '{feature}': clipped to [{lower}, {upper}]")
-
-    def replace_inf_values(self):
-        print("\nReplacing Infinity Values:")
-        self.X_high[np.isinf(self.X_high)] = np.nan
-        self.X_low[np.isinf(self.X_low)] = np.nan
-        # Optionally, replace NaN with a large finite value or the maximum value in the feature
-        self.X_high = np.nan_to_num(self.X_high, nan=0.0, posinf=0.0, neginf=0.0)
-        self.X_low = np.nan_to_num(self.X_low, nan=0.0, posinf=0.0, neginf=0.0)
-        print("Replaced 'inf' values with 0.0.")
-
-    def inspect_rst_flag_count(self):
-        print("\nInspecting 'RST Flag Count':")
-        if 'RST Flag Count' in self.data.columns:
-            unique_values = self.data['RST Flag Count'].unique()
-            print(f"Unique values in 'RST Flag Count': {unique_values}")
-        else:
-            print("'RST Flag Count' feature not found.")
-
-    def exclude_uninformative_features(self):
-        print("\nExcluding Uninformative Features:")
-        # Example: Exclude 'RST Flag Count' if all values are 0
-        if 'RST Flag Count' in self.high_level_features:
-            unique_vals = self.data['RST Flag Count'].unique()
-            if len(unique_vals) == 1 and unique_vals[0] == 0.0:
-                self.high_level_features.remove('RST Flag Count')
-                print("Excluded 'RST Flag Count' from high-level features.")
-        if 'RST Flag Count' in self.low_level_features:
-            unique_vals = self.data['RST Flag Count'].unique()
-            if len(unique_vals) == 1 and unique_vals[0] == 0.0:
-                self.low_level_features.remove('RST Flag Count')
-                print("Excluded 'RST Flag Count' from low-level features.")
+        Args:
+            lower_percentile (int, optional): Lower percentile for clipping. Defaults to 1.
+            upper_percentile (int, optional): Upper percentile for clipping. Defaults to 99.
+        """
+        for feature in self.high_level_features + self.low_level_features:
+            if feature in self.data.columns:
+                lower = np.percentile(self.data[feature], lower_percentile)
+                upper = np.percentile(self.data[feature], upper_percentile)
+                self.data[feature] = self.data[feature].clip(lower, upper)
+                logging.info(f"Clipped '{feature}' to [{lower}, {upper}].")
 
     def normalize_features(self):
-        print("\nNormalizing Features:")
-        try:
-            self.X_high = self.scaler_high.fit_transform(self.X_high)
-            print("High-Level Features normalized.")
-        except Exception as e:
-            raise ValueError(f"Error during normalization of high-level features: {e}")
-        
-        try:
-            self.X_low = self.scaler_low.fit_transform(self.X_low)
-            print("Low-Level Features normalized.")
-        except Exception as e:
-            raise ValueError(f"Error during normalization of low-level features: {e}")
+        """
+        Normalizes High-Level and Low-Level features using StandardScaler.
+        """
+        self.data[self.high_level_features] = self.scaler_high.fit_transform(self.data[self.high_level_features])
+        self.data[self.low_level_features] = self.scaler_low.fit_transform(self.data[self.low_level_features])
+        logging.info("Normalized High-Level and Low-Level features.")
 
-    def split_data(self, test_size=0.2, random_state=42):
-        X_high_train, X_high_test, X_low_train, X_low_test, y_train, y_test = train_test_split(
-            self.X_high, self.X_low, self.y_category, test_size=test_size, stratify=self.y_category, random_state=random_state)
-        print(f"Data split into train and test sets with test size {test_size}")
-        return (X_high_train, X_low_train, y_train), (X_high_test, X_low_test, y_test)
+    def remove_uninformative_features(self):
+        """
+        Removes features with a single unique value as they are uninformative.
+        """
+        for feature in self.high_level_features + self.low_level_features:
+            unique_values = self.data[feature].nunique()
+            if unique_values <= 1:
+                self.data.drop(columns=feature, inplace=True)
+                logging.info(f"Removed uninformative feature '{feature}' with {unique_values} unique value(s).")
 
-    def save_mappings(self, output_dir):
+    def create_subset(self, subset_size=250, output_dir='./data/subset', classes_to_include=[0, 1, 2, 3, 4]):
+        """
+        Creates and saves a subset of the data for training and evaluation.
+
+        Args:
+            subset_size (int, optional): Total number of samples in the subset. Defaults to 250.
+            output_dir (str, optional): Directory to save subset files. Defaults to './data/subset'.
+            classes_to_include (list, optional): List of class IDs to include. Defaults to [0, 1, 2, 3, 4].
+        """
         os.makedirs(output_dir, exist_ok=True)
-        with open(os.path.join(output_dir, 'category_to_id.json'), 'w') as f:
-            json.dump(self.category_to_id, f, indent=4)
-        with open(os.path.join(output_dir, 'anomaly_to_id.json'), 'w') as f:
-            json.dump(self.anomaly_to_id, f, indent=4)
-        print("Mappings saved to JSON files.")
+        samples_per_class = subset_size // len(classes_to_include)
+        selected_indices = []
+
+        for cls in classes_to_include:
+            cls_indices = self.data[self.data['Category'] == cls].index.tolist()
+            if len(cls_indices) < samples_per_class:
+                logging.warning(f"Not enough samples for class {cls}. Available: {len(cls_indices)}, Required: {samples_per_class}")
+                selected = cls_indices
+            else:
+                selected = np.random.choice(cls_indices, samples_per_class, replace=False).tolist()
+            selected_indices.extend(selected)
+
+        subset = self.data.loc[selected_indices].sample(frac=1).reset_index(drop=True)
+        X_high_subset = subset[self.high_level_features].values
+        X_low_subset = subset[self.low_level_features].values
+        y_high_subset = subset['Category'].values
+        y_low_subset = subset['Anomaly'].values
+
+        # Save subsets
+        np.save(os.path.join(output_dir, 'X_high_subset.npy'), X_high_subset)
+        np.save(os.path.join(output_dir, 'X_low_subset.npy'), X_low_subset)
+        np.save(os.path.join(output_dir, 'y_high_subset.npy'), y_high_subset)
+        np.save(os.path.join(output_dir, 'y_low_subset.npy'), y_low_subset)
+
+        logging.info(f"Created subset with {len(subset)} samples and saved to '{output_dir}'.")
 
     def preprocess(self):
+        """
+        Executes the full preprocessing pipeline.
+
+        Returns:
+            tuple: Training and testing datasets.
+        """
         self.load_data()
-        self.clean_column_names()
         self.clean_data()
-        unique_labels = self.extract_unique_labels()
-        categories = self.extract_categories(unique_labels)
-        self.create_mappings(unique_labels, categories)
-        self.map_labels()
         self.standardize_labels()
-        self.remove_duplicate_columns()
-        self.handle_negative_values()
+        self.map_labels()
+        self.convert_features()
+        self.handle_negatives()
         self.apply_log_transform()
-        self.select_features()
-        self.convert_to_numeric()
-        self.inspect_features()
         self.clip_outliers()
-        self.replace_inf_values()
-        self.inspect_rst_flag_count()
-        self.exclude_uninformative_features()
         self.normalize_features()
-        return self.split_data()
+        self.remove_uninformative_features()
+        logging.info("Completed preprocessing pipeline.")
+        return self.data
+
 
 def main():
-    # Define feature lists based on the sample header
+    """
+    Main function to execute data preprocessing.
+    """
+    # Define feature lists
     high_level_features = [
         'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
         'Flow Bytes/s', 'Flow Packets/s'
@@ -292,43 +283,55 @@ def main():
         'Fwd Packet Length Std', 'FIN Flag Count', 'RST Flag Count',
         'Packet Length Variance'
     ]
-    
+
     # Initialize DataPreprocessor
-    data_dir = './data'  # Adjust path if necessary
     preprocessor = DataPreprocessor(
-        data_dir=data_dir,
+        data_dir='./data',  # Adjust path as needed
         high_level_features=high_level_features,
         low_level_features=low_level_features,
         label_column='Label'
     )
-    
+
     try:
-        # Preprocess data
-        (X_high_train, X_low_train, y_train), (X_high_test, X_low_test, y_test) = preprocessor.preprocess()
+        # Execute preprocessing
+        data = preprocessor.preprocess()
     except KeyError as e:
-        print(f"KeyError encountered: {e}")
-        print("Please verify that the 'Label' column exists in your dataset.")
-        print(f"Available columns: {preprocessor.data.columns.tolist()}")
-        sys.exit(1)
-    except ValueError as e:
-        print(f"ValueError encountered: {e}")
-        print("This might be due to infinite or excessively large values in the data.")
+        logging.error(f"KeyError: {e}. Check if all feature columns are present.")
         sys.exit(1)
     except Exception as e:
-        print(f"An error occurred during preprocessing: {e}")
+        logging.error(f"An unexpected error occurred during preprocessing: {e}")
         sys.exit(1)
-    
-    # Save mappings
-    preprocessor.save_mappings(output_dir='./data/mappings')
-    
-    # Save preprocessed data as numpy arrays
+
+    # Create subset
+    preprocessor.create_subset(subset_size=250, output_dir='./data/subset', classes_to_include=[0, 1, 2, 3, 4])
+
+    # Split data into training and testing sets
+    X_high = data[preprocessor.high_level_features].values
+    X_low = data[preprocessor.low_level_features].values
+    y = data['Category'].values
+
+    X_high_train, X_high_test, X_low_train, X_low_test, y_train, y_test = train_test_split(
+        X_high, X_low, y, test_size=0.2, stratify=y, random_state=42
+    )
+    logging.info(f"Split data into training and testing sets.")
+
+    # Save training and testing datasets
     np.save('./data/X_high_train.npy', X_high_train)
     np.save('./data/X_low_train.npy', X_low_train)
     np.save('./data/y_train.npy', y_train)
     np.save('./data/X_high_test.npy', X_high_test)
     np.save('./data/X_low_test.npy', X_low_test)
     np.save('./data/y_test.npy', y_test)
-    print("Preprocessed data saved successfully.")
+    logging.info("Saved training and testing datasets.")
+
+    # Save mappings
+    os.makedirs('./data/mappings', exist_ok=True)
+    with open('./data/mappings/category_to_id.json', 'w') as f:
+        json.dump(preprocessor.mappings['category_to_id'], f, indent=4)
+    with open('./data/mappings/anomaly_to_id.json', 'w') as f:
+        json.dump(preprocessor.mappings['anomaly_to_id'], f, indent=4)
+    logging.info("Saved category and anomaly mappings.")
+
 
 if __name__ == "__main__":
     main()
