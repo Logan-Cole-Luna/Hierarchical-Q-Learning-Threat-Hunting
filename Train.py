@@ -22,6 +22,7 @@ def main():
     
     # Load preprocessed data
     data_dir = 'data'  # Relative path from main directory
+    
     X_high_train = np.load(os.path.join(data_dir, 'X_high_train.npy'))
     X_low_train = np.load(os.path.join(data_dir, 'X_low_train.npy'))
     y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
