@@ -8,3 +8,5 @@
 - Improve reward function 
 
 - Implement proper Q learning algorithm
+
+- Improve data preprocessing, have the values be better normalized & encoded
