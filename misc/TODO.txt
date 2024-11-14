@@ -10,3 +10,8 @@
 - Implement proper Q learning algorithm
 
 - Improve data preprocessing, have the values be better normalized & encoded
+
+- Improve training env, how should we set it up? Implement it so that the model is scaning multiple ports repeatedly 
+    looking for change?
+
+- Integrate attention into the Q Learning Model
