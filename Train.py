@@ -19,17 +19,17 @@ Functions:
 import os
 import sys
 import numpy as np
-from IntrusionDetectionEnv import IntrusionDetectionEnv
-from agents.HighLevelAgent import HighLevelAgent
-from agents.LowLevelAgent import LowLevelAgent
-from RewardCalculator import RewardCalculator
-from Trainer import Trainer
-from scripts.Evaluator import Evaluator
-from QNetwork import QNetwork
+from utils.intrusion_detection_env import IntrusionDetectionEnv
+from agents.high_level_agent import HighLevelAgent
+from agents.low_level_agent import LowLevelAgent
+from utils.reward_calculator import RewardCalculator
+from utils.trainer import Trainer
+from scripts.evaluator import Evaluator
+from utils.q_network import QNetwork
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import label_binarize
 import logging
-from Visuals import Visuals
+from utils.visualizer import Visuals
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

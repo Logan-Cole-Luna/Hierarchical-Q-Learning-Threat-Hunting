@@ -13,7 +13,7 @@ Classes:
 import numpy as np
 import random
 from collections import deque
-from QNetwork import QNetwork
+from utils.q_network import QNetwork
 
 class ReplayBuffer:
     def __init__(self, capacity=2000):

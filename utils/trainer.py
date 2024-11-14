@@ -9,10 +9,10 @@ Classes:
     - Trainer: Orchestrates the training loop, manages agent actions, and updates for each episode.
 """
 
-from IntrusionDetectionEnv import IntrusionDetectionEnv
-from agents.HighLevelAgent import HighLevelAgent
-from agents.LowLevelAgent import LowLevelAgent
-from RewardCalculator import RewardCalculator
+from utils.intrusion_detection_env import IntrusionDetectionEnv
+from agents.high_level_agent import HighLevelAgent
+from agents.low_level_agent import LowLevelAgent
+from utils.reward_calculator import RewardCalculator
 import numpy as np
 
 class Trainer:

@@ -9,7 +9,7 @@ Classes:
 
 import numpy as np
 import json
-from RewardCalculator import RewardCalculator
+from utils.reward_calculator import RewardCalculator
 
 class IntrusionDetectionEnv:
     def __init__(self, X_high, X_low, y_high, y_low, high_agent_action_space, low_agent_action_space, mappings_dir):
