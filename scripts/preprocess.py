@@ -4,7 +4,7 @@
 Data Preprocessing Script for Hierarchical Q-Learning Threat Hunting
 
 This script preprocesses network intrusion detection datasets for hierarchical Q-Learning models.
-It handles data loading, cleaning, feature selection, label mapping, normalization, and subset creation.
+It performs data loading, cleaning, feature selection, label mapping, normalization, and subset creation.
 Both High-Level and Low-Level labels are separated and saved for subsequent training and evaluation.
 
 Usage:
@@ -21,7 +21,7 @@ import sys
 import json
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, label_binarize
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import logging
 
@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 class DataPreprocessor:
     """
-    Handles preprocessing of network intrusion detection data for hierarchical Q-Learning models.
+    Preprocesses network intrusion detection data for hierarchical Q-Learning models.
 
     Attributes:
         data_dir (str): Directory containing raw CSV data files.
@@ -55,8 +55,8 @@ class DataPreprocessor:
             label_column (str, optional): Column name containing labels. Defaults to 'Label'.
         """
         self.data_dir = data_dir
-        self.high_level_features = high_level_features
-        self.low_level_features = low_level_features
+        self.high_level_features = high_level_features.copy()
+        self.low_level_features = low_level_features.copy()
         self.label_column = label_column
         self.scaler_high = StandardScaler()
         self.scaler_low = StandardScaler()
@@ -93,17 +93,17 @@ class DataPreprocessor:
         """
         Cleans the dataset by handling missing values, removing duplicates, and standardizing column names.
         """
-        # Standardize column names
+        # Standardize column names by stripping whitespace
         self.data.columns = self.data.columns.str.strip()
         logging.info("Standardized column names.")
 
-        # Handle missing values
+        # Handle missing values by filling with zero
         missing_before = self.data.isnull().sum().sum()
         self.data.fillna(0, inplace=True)
         missing_after = self.data.isnull().sum().sum()
         logging.info(f"Handled missing values: before={missing_before}, after={missing_after}")
 
-        # Remove duplicates
+        # Remove duplicate entries
         initial_shape = self.data.shape
         self.data.drop_duplicates(inplace=True)
         final_shape = self.data.shape
@@ -148,7 +148,8 @@ class DataPreprocessor:
         self.data.dropna(subset=['Category', 'Anomaly'], inplace=True)
         final_shape = self.data.shape
         if initial_shape != final_shape:
-            logging.warning(f"Removed {initial_shape[0] - final_shape[0]} entries with unmapped labels.")
+            removed = initial_shape[0] - final_shape[0]
+            logging.warning(f"Removed {removed} entries with unmapped labels.")
 
     def convert_features(self):
         """
@@ -205,13 +206,26 @@ class DataPreprocessor:
 
     def remove_uninformative_features(self):
         """
-        Removes features with a single unique value as they are uninformative.
+        Removes features with a single unique value as they are uninformative and updates feature lists.
         """
+        features_to_remove = []
         for feature in self.high_level_features + self.low_level_features:
             unique_values = self.data[feature].nunique()
             if unique_values <= 1:
-                self.data.drop(columns=feature, inplace=True)
-                logging.info(f"Removed uninformative feature '{feature}' with {unique_values} unique value(s).")
+                features_to_remove.append(feature)
+                logging.info(f"Marked '{feature}' for removal with {unique_values} unique value(s).")
+
+        if features_to_remove:
+            self.data.drop(columns=features_to_remove, inplace=True)
+            logging.info(f"Removed uninformative features: {features_to_remove}")
+
+            # Remove from feature lists
+            self.high_level_features = [f for f in self.high_level_features if f not in features_to_remove]
+            self.low_level_features = [f for f in self.low_level_features if f not in features_to_remove]
+            logging.info(f"Updated High-Level Features: {self.high_level_features}")
+            logging.info(f"Updated Low-Level Features: {self.low_level_features}")
+        else:
+            logging.info("No uninformative features found.")
 
     def create_subset(self, subset_size=250, output_dir='./data/subset', classes_to_include=[0, 1, 2, 3, 4]):
         """
@@ -247,14 +261,20 @@ class DataPreprocessor:
         np.save(os.path.join(output_dir, 'y_high_subset.npy'), y_high_subset)
         np.save(os.path.join(output_dir, 'y_low_subset.npy'), y_low_subset)
 
+        # Summary
         logging.info(f"Created subset with {len(subset)} samples and saved to '{output_dir}'.")
+        for cls in classes_to_include:
+            count = np.sum(y_high_subset == cls)
+            label_name = [k for k, v in self.mappings['category_to_id'].items() if v == cls]
+            label_name = label_name[0] if label_name else "Unknown"
+            logging.info(f"- {count} samples for class '{label_name}' (Label ID {cls})")
 
     def preprocess(self):
         """
         Executes the full preprocessing pipeline.
 
         Returns:
-            tuple: Training and testing datasets.
+            pd.DataFrame: The fully preprocessed dataset.
         """
         self.load_data()
         self.clean_data()
@@ -324,13 +344,8 @@ def main():
     np.save('./data/y_test.npy', y_test)
     logging.info("Saved training and testing datasets.")
 
-    # Save mappings
-    os.makedirs('./data/mappings', exist_ok=True)
-    with open('./data/mappings/category_to_id.json', 'w') as f:
-        json.dump(preprocessor.mappings['category_to_id'], f, indent=4)
-    with open('./data/mappings/anomaly_to_id.json', 'w') as f:
-        json.dump(preprocessor.mappings['anomaly_to_id'], f, indent=4)
-    logging.info("Saved category and anomaly mappings.")
+    # Save mappings (already saved during mapping)
+    logging.info("Data preprocessing completed successfully.")
 
 
 if __name__ == "__main__":
