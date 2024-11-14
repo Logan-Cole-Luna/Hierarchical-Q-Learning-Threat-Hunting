@@ -4,10 +4,10 @@ import plotly.graph_objects as go
 import numpy as np
 
 # Define the directory containing your CSV files
-data_directory = 'data/'  # Replace this with your actual directory path
+data_directory = 'data/'
 
-# Sampling fraction for non-DDoS attack types
-sampling_fraction = 0.05
+# Sampling fraction (e.g., divide by 5)
+sampling_fraction = 0.2
 
 # Initialize an empty DataFrame to store all data
 all_data = pd.DataFrame()
@@ -21,31 +21,25 @@ for filename in os.listdir(data_directory):
         temp_data.columns = temp_data.columns.str.strip()  # Clean column names
         temp_data['Attack_Type'] = filename.split('-')[1]  # Extract attack type from filename
         
+        # Sample within each 'Label' category to retain proportional representation
+        temp_data = temp_data.groupby('Label', group_keys=False).apply(
+            lambda x: x.sample(frac=sampling_fraction, random_state=42)
+        ).reset_index(drop=True)
+        
         all_data = pd.concat([all_data, temp_data], ignore_index=True)
 
-# Separate DDoS data and non-DDoS data
-ddos_data = all_data[all_data['Label'].str.contains('DDoS')]
-non_ddos_data = all_data[~all_data['Label'].str.contains('DDoS')]
-
-# Create datasets for each visualization
-# 1. Full DDoS and BENIGN included, non-DDoS downsampled
-data_with_benign = pd.concat([ddos_data, non_ddos_data.groupby('Label', group_keys=False).apply(
-    lambda x: x.sample(frac=sampling_fraction, random_state=42))])
-
-# 2. Full DDoS without BENIGN, non-DDoS downsampled
-data_without_benign = data_with_benign[data_with_benign['Label'] != 'BENIGN']
-
-# 3. Downsample everything (including DDoS) and exclude BENIGN
-data_downsampled = all_data[all_data['Label'] != 'BENIGN'].groupby('Label', group_keys=False).apply(
-    lambda x: x.sample(frac=sampling_fraction, random_state=42))
+# Separate data with and without "BENIGN" label
+data_with_benign = all_data
+data_without_benign = all_data[all_data['Label'] != 'BENIGN']
 
 # Define a color map for each attack type
 attack_types = all_data['Attack_Type'].unique()
-colors = ["#" + ''.join(np.random.choice(list("0123456789ABCDEF"), 6)) for _ in attack_types]
+colors = ["#"+''.join([np.random.choice(list('0123456789ABCDEF')) for _ in range(6)]) for _ in attack_types]
 color_map = dict(zip(attack_types, colors))
 
 # Define a function to create a Sankey diagram
 def create_sankey(data, title):
+    # Group data by Destination Port, Attack_Type, and Label, aggregating necessary metrics
     sankey_data = data.groupby(['Destination Port', 'Attack_Type', 'Label']).agg({
         'Flow Duration': 'sum',
         'Total Fwd Packets': 'sum',
@@ -54,26 +48,39 @@ def create_sankey(data, title):
         'Total Length of Bwd Packets': 'sum'
     }).reset_index()
 
+    # Define nodes and links for the Sankey diagram
     nodes = list(sankey_data['Destination Port'].astype(str).unique()) + \
             list(sankey_data['Attack_Type'].unique()) + \
             list(sankey_data['Label'].unique())
+
+    # Create node indices for Sankey plot
     node_indices = {node: idx for idx, node in enumerate(nodes)}
 
+    # Define source, target, and values for each link
     source = sankey_data['Destination Port'].astype(str).map(node_indices).tolist()
     target_attack = sankey_data['Attack_Type'].map(node_indices).tolist()
     target_label = sankey_data['Label'].map(node_indices).tolist()
     values = sankey_data['Flow Duration'].tolist()
-    values_log_scaled = [np.log1p(value) for value in values]
-    
+
+    # Combining source-target lists for both Attack_Type and Label connections
     source_combined = source + target_attack
     target_combined = target_attack + target_label
-    values_combined = values_log_scaled + values_log_scaled
+    values_combined = values + values  # Duplicate values for two connections
 
-    node_colors = [color_map.get(node, "#2ca02c") if node in color_map else "#1f77b4" for node in nodes]
+    # Apply colors based on attack type for nodes
+    node_colors = []
+    for node in nodes:
+        if node in sankey_data['Attack_Type'].unique():
+            node_colors.append(color_map[node])  # Color based on attack type
+        elif "Port" in str(node):
+            node_colors.append("#1f77b4")  # Blue for destination ports
+        else:
+            node_colors.append("#2ca02c")  # Green for labels (e.g., BENIGN)
 
+    # Create the Sankey diagram
     fig = go.Figure(data=[go.Sankey(
         node=dict(
-            pad=50,
+            pad=30,  # Increase padding for more space between nodes
             thickness=20,
             line=dict(color="black", width=0.5),
             label=nodes,
@@ -83,20 +90,22 @@ def create_sankey(data, title):
             source=source_combined,
             target=target_combined,
             value=values_combined,
-            color="rgba(100, 100, 100, 0.3)",
+            color="rgba(100, 100, 100, 0.5)",
         )
     )])
 
+    # Update layout for readability
     fig.update_layout(
         title_text=title,
         font_size=10,
         plot_bgcolor="white",
         width=1200,
-        height=1000
+        height=800
     )
+
+    # Display the figure
     fig.show()
 
-# Generate three Sankey diagrams
-create_sankey(data_with_benign, "Network Traffic Flow Visualization Including BENIGN with Full DDoS")
-create_sankey(data_without_benign, "Network Traffic Flow Visualization Excluding BENIGN with Full DDoS")
-create_sankey(data_downsampled, "Network Traffic Flow Visualization Excluding BENIGN with Downsampled DDoS")
+# Generate two visualizations: one with and one without "BENIGN"
+create_sankey(data_with_benign, "Network Traffic Flow Visualization Including BENIGN")
+create_sankey(data_without_benign, "Network Traffic Flow Visualization Excluding BENIGN")
