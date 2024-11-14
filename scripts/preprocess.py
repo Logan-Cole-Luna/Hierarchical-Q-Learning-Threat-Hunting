@@ -21,7 +21,7 @@ import sys
 import json
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 import logging
 
@@ -38,28 +38,19 @@ class DataPreprocessor:
         high_level_features (list): Feature names for the High-Level Q-Network.
         low_level_features (list): Feature names for the Low-Level Q-Network.
         label_column (str): Column name containing labels.
-        scaler_high (StandardScaler): Scaler for High-Level features.
-        scaler_low (StandardScaler): Scaler for Low-Level features.
+        scaler_high (MinMaxScaler): Scaler for High-Level features.
+        scaler_low (MinMaxScaler): Scaler for Low-Level features.
         data (pd.DataFrame): Combined and cleaned dataset.
         mappings (dict): Mappings for categories and anomalies.
     """
 
     def __init__(self, data_dir, high_level_features, low_level_features, label_column='Label'):
-        """
-        Initializes the DataPreprocessor with specified parameters.
-
-        Args:
-            data_dir (str): Directory containing raw CSV data files.
-            high_level_features (list): Feature names for the High-Level Q-Network.
-            low_level_features (list): Feature names for the Low-Level Q-Network.
-            label_column (str, optional): Column name containing labels. Defaults to 'Label'.
-        """
         self.data_dir = data_dir
         self.high_level_features = high_level_features.copy()
         self.low_level_features = low_level_features.copy()
         self.label_column = label_column
-        self.scaler_high = StandardScaler()
-        self.scaler_low = StandardScaler()
+        self.scaler_high = MinMaxScaler()
+        self.scaler_low = MinMaxScaler()
         self.data = None
         self.mappings = {
             'category_to_id': {},
@@ -122,14 +113,18 @@ class DataPreprocessor:
 
     def map_labels(self):
         """
-        Maps categorical labels to integer IDs and separates them into categories and anomalies.
+        Maps categorical labels to continuous integer IDs and saves the mappings.
         """
         unique_labels = self.data[self.label_column].unique()
         categories = sorted({label.split('_')[0] for label in unique_labels})
-        self.mappings['category_to_id'] = {category: idx for idx, category in enumerate(categories)}
-        self.mappings['anomaly_to_id'] = {label: idx for idx, label in enumerate(unique_labels)}
 
-        # Save mappings
+        # Map category labels to continuous integer IDs
+        self.mappings['category_to_id'] = {str(category): int(idx) for idx, category in enumerate(categories)}
+        # Map anomaly labels to continuous integer IDs
+        sorted_unique_anomalies = sorted(unique_labels)
+        self.mappings['anomaly_to_id'] = {str(label): int(idx) for idx, label in enumerate(sorted_unique_anomalies)}
+
+        # Save mappings to JSON
         os.makedirs('./data/mappings', exist_ok=True)
         with open('./data/mappings/category_to_id.json', 'w') as f:
             json.dump(self.mappings['category_to_id'], f, indent=4)
@@ -143,39 +138,50 @@ class DataPreprocessor:
         )
         self.data['Anomaly'] = self.data[self.label_column].map(self.mappings['anomaly_to_id'])
 
-        # Remove entries with unmapped labels
-        initial_shape = self.data.shape
-        self.data.dropna(subset=['Category', 'Anomaly'], inplace=True)
-        final_shape = self.data.shape
-        if initial_shape != final_shape:
-            removed = initial_shape[0] - final_shape[0]
-            logging.warning(f"Removed {removed} entries with unmapped labels.")
+        # Check for NaNs after initial mapping
+        if self.data['Anomaly'].isnull().any():
+            logging.error("Some Anomaly labels could not be mapped. Check mappings.")
+            sys.exit(1)
 
-    def convert_features(self):
+        # Ensure Anomaly labels are continuous integers starting from 0
+        unique_anomaly_labels = sorted(self.data['Anomaly'].unique())
+        anomaly_continuous_id = {label: idx for idx, label in enumerate(unique_anomaly_labels)}
+        self.data['Anomaly'] = self.data['Anomaly'].map(anomaly_continuous_id)
+
+        # Verify mapping was successful
+        if self.data['Anomaly'].isnull().any():
+            logging.error("Some Anomaly labels could not be mapped to continuous IDs.")
+            sys.exit(1)
+
+        # Save continuous anomaly mapping
+        self.mappings['anomaly_continuous_id'] = anomaly_continuous_id
+        with open('./data/mappings/anomaly_continuous_id.json', 'w') as f:
+            # Convert integer keys to strings for JSON compatibility
+            anomaly_continuous_id_str = {str(k): v for k, v in anomaly_continuous_id.items()}
+            json.dump(anomaly_continuous_id_str, f, indent=4)
+        logging.info("Mapped Anomaly labels to a continuous ID range.")
+
+    def preprocess_features(self):
         """
-        Ensures all feature columns are numeric and handles conversion errors.
+        Converts features to numeric, applies transformations, and normalizes.
         """
+        # Convert all feature columns to numeric
         for feature in self.high_level_features + self.low_level_features:
-            if not pd.api.types.is_numeric_dtype(self.data[feature]):
-                self.data[feature] = pd.to_numeric(self.data[feature], errors='coerce').fillna(0)
-                logging.info(f"Converted feature '{feature}' to numeric.")
+            self.data[feature] = pd.to_numeric(self.data[feature], errors='coerce').fillna(0)
+            logging.info(f"Converted '{feature}' to numeric.")
 
-    def handle_negatives(self):
-        """
-        Sets negative values in High-Level features to zero.
-        """
-        for feature in self.high_level_features:
-            negatives = (self.data[feature] < 0).sum()
-            if negatives > 0:
-                self.data.loc[self.data[feature] < 0, feature] = 0
-                logging.info(f"Set {negatives} negative values in '{feature}' to 0.")
+        # Apply log1p transformation to reduce skewness
+        self.apply_log_transform()
+        # Clip outliers based on percentiles
+        self.clip_outliers()
+        # Normalize features using MinMaxScaler
+        self.normalize_features()
 
     def apply_log_transform(self):
         """
-        Applies log1p transformation to selected features to handle skewness.
+        Applies log1p transformation to reduce skewness in specified features.
         """
-        log_features = ['Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
-                        'Flow Bytes/s', 'Flow Packets/s']
+        log_features = ['Flow Duration', 'Total Fwd Packets', 'Total Backward Packets', 'Flow Bytes/s', 'Flow Packets/s']
         for feature in log_features:
             if feature in self.data.columns:
                 self.data[feature] = self.data[feature].apply(lambda x: np.log1p(x) if x > 0 else 0)
@@ -184,52 +190,24 @@ class DataPreprocessor:
     def clip_outliers(self, lower_percentile=1, upper_percentile=99):
         """
         Clips outliers in High-Level and Low-Level features based on specified percentiles.
-
-        Args:
-            lower_percentile (int, optional): Lower percentile for clipping. Defaults to 1.
-            upper_percentile (int, optional): Upper percentile for clipping. Defaults to 99.
         """
         for feature in self.high_level_features + self.low_level_features:
-            if feature in self.data.columns:
-                lower = np.percentile(self.data[feature], lower_percentile)
-                upper = np.percentile(self.data[feature], upper_percentile)
-                self.data[feature] = self.data[feature].clip(lower, upper)
-                logging.info(f"Clipped '{feature}' to [{lower}, {upper}].")
+            lower = np.percentile(self.data[feature], lower_percentile)
+            upper = np.percentile(self.data[feature], upper_percentile)
+            self.data[feature] = self.data[feature].clip(lower, upper)
+            logging.info(f"Clipped '{feature}' to [{lower}, {upper}].")
 
     def normalize_features(self):
         """
-        Normalizes High-Level and Low-Level features using StandardScaler.
+        Normalizes High-Level and Low-Level features using MinMaxScaler.
         """
         self.data[self.high_level_features] = self.scaler_high.fit_transform(self.data[self.high_level_features])
         self.data[self.low_level_features] = self.scaler_low.fit_transform(self.data[self.low_level_features])
-        logging.info("Normalized High-Level and Low-Level features.")
-
-    def remove_uninformative_features(self):
-        """
-        Removes features with a single unique value as they are uninformative and updates feature lists.
-        """
-        features_to_remove = []
-        for feature in self.high_level_features + self.low_level_features:
-            unique_values = self.data[feature].nunique()
-            if unique_values <= 1:
-                features_to_remove.append(feature)
-                logging.info(f"Marked '{feature}' for removal with {unique_values} unique value(s).")
-
-        if features_to_remove:
-            self.data.drop(columns=features_to_remove, inplace=True)
-            logging.info(f"Removed uninformative features: {features_to_remove}")
-
-            # Remove from feature lists
-            self.high_level_features = [f for f in self.high_level_features if f not in features_to_remove]
-            self.low_level_features = [f for f in self.low_level_features if f not in features_to_remove]
-            logging.info(f"Updated High-Level Features: {self.high_level_features}")
-            logging.info(f"Updated Low-Level Features: {self.low_level_features}")
-        else:
-            logging.info("No uninformative features found.")
+        logging.info("Normalized features using MinMaxScaler.")
 
     def create_subset(self, subset_size=250, output_dir='./data/subset', classes_to_include=[0, 1, 2, 3, 4]):
         """
-        Creates and saves a subset of the data for training and evaluation.
+        Creates a balanced subset for evaluation and training.
 
         Args:
             subset_size (int, optional): Total number of samples in the subset. Defaults to 250.
@@ -250,102 +228,71 @@ class DataPreprocessor:
             selected_indices.extend(selected)
 
         subset = self.data.loc[selected_indices].sample(frac=1).reset_index(drop=True)
-        X_high_subset = subset[self.high_level_features].values
-        X_low_subset = subset[self.low_level_features].values
-        y_high_subset = subset['Category'].values
-        y_low_subset = subset['Anomaly'].values
+        np.save(os.path.join(output_dir, 'X_high_subset.npy'), subset[self.high_level_features].values)
+        np.save(os.path.join(output_dir, 'X_low_subset.npy'), subset[self.low_level_features].values)
+        np.save(os.path.join(output_dir, 'y_high_subset.npy'), subset['Category'].values)
+        np.save(os.path.join(output_dir, 'y_low_subset.npy'), subset['Anomaly'].values)
+        logging.info(f"Saved subset with {len(subset)} samples to '{output_dir}'.")
 
-        # Save subsets
-        np.save(os.path.join(output_dir, 'X_high_subset.npy'), X_high_subset)
-        np.save(os.path.join(output_dir, 'X_low_subset.npy'), X_low_subset)
-        np.save(os.path.join(output_dir, 'y_high_subset.npy'), y_high_subset)
-        np.save(os.path.join(output_dir, 'y_low_subset.npy'), y_low_subset)
+    def split_data(self, output_dir='./data'):
+        """
+        Splits the full dataset into training and testing sets and saves them.
 
-        # Summary
-        logging.info(f"Created subset with {len(subset)} samples and saved to '{output_dir}'.")
-        for cls in classes_to_include:
-            count = np.sum(y_high_subset == cls)
-            label_name = [k for k, v in self.mappings['category_to_id'].items() if v == cls]
-            label_name = label_name[0] if label_name else "Unknown"
-            logging.info(f"- {count} samples for class '{label_name}' (Label ID {cls})")
+        Args:
+            output_dir (str, optional): Directory to save split datasets. Defaults to './data'.
+        """
+        X_high = self.data[self.high_level_features].values
+        X_low = self.data[self.low_level_features].values
+        y_high = self.data['Category'].values
+        y_low = self.data['Anomaly'].values
+
+        X_high_train, X_high_test, X_low_train, X_low_test, y_high_train, y_high_test, y_low_train, y_low_test = train_test_split(
+            X_high, X_low, y_high, y_low, test_size=0.2, stratify=y_high, random_state=42
+        )
+
+        os.makedirs(output_dir, exist_ok=True)
+        np.save(os.path.join(output_dir, 'X_high_train.npy'), X_high_train)
+        np.save(os.path.join(output_dir, 'X_low_train.npy'), X_low_train)
+        np.save(os.path.join(output_dir, 'y_high_train.npy'), y_high_train)
+        np.save(os.path.join(output_dir, 'y_low_train.npy'), y_low_train)
+        np.save(os.path.join(output_dir, 'X_high_test.npy'), X_high_test)
+        np.save(os.path.join(output_dir, 'X_low_test.npy'), X_low_test)
+        np.save(os.path.join(output_dir, 'y_high_test.npy'), y_high_test)
+        np.save(os.path.join(output_dir, 'y_low_test.npy'), y_low_test)
+        logging.info("Saved training and testing datasets.")
 
     def preprocess(self):
         """
         Executes the full preprocessing pipeline.
-
-        Returns:
-            pd.DataFrame: The fully preprocessed dataset.
         """
         self.load_data()
         self.clean_data()
         self.standardize_labels()
         self.map_labels()
-        self.convert_features()
-        self.handle_negatives()
-        self.apply_log_transform()
-        self.clip_outliers()
-        self.normalize_features()
-        self.remove_uninformative_features()
-        logging.info("Completed preprocessing pipeline.")
-        return self.data
+        self.preprocess_features()
+        self.create_subset()
+        self.split_data()
+        logging.info("Preprocessing pipeline completed.")
 
 
 def main():
     """
-    Main function to execute data preprocessing.
+    Executes data preprocessing.
     """
-    # Define feature lists
-    high_level_features = [
-        'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
-        'Flow Bytes/s', 'Flow Packets/s'
-    ]
-    low_level_features = [
-        'Fwd Packet Length Std', 'FIN Flag Count', 'RST Flag Count',
-        'Packet Length Variance'
-    ]
+    high_level_features = ['Flow Duration', 'Total Fwd Packets', 'Total Backward Packets', 'Flow Bytes/s', 'Flow Packets/s']
+    low_level_features = ['Fwd Packet Length Std', 'FIN Flag Count', 'RST Flag Count', 'Packet Length Variance']
 
-    # Initialize DataPreprocessor
     preprocessor = DataPreprocessor(
-        data_dir='./data',  # Adjust path as needed
-        high_level_features=high_level_features,
-        low_level_features=low_level_features,
-        label_column='Label'
+        data_dir='./data', 
+        high_level_features=high_level_features, 
+        low_level_features=low_level_features
     )
-
+    
     try:
-        # Execute preprocessing
-        data = preprocessor.preprocess()
-    except KeyError as e:
-        logging.error(f"KeyError: {e}. Check if all feature columns are present.")
-        sys.exit(1)
+        preprocessor.preprocess()
     except Exception as e:
-        logging.error(f"An unexpected error occurred during preprocessing: {e}")
+        logging.error(f"Preprocessing failed: {e}")
         sys.exit(1)
-
-    # Create subset
-    preprocessor.create_subset(subset_size=250, output_dir='./data/subset', classes_to_include=[0, 1, 2, 3, 4])
-
-    # Split data into training and testing sets
-    X_high = data[preprocessor.high_level_features].values
-    X_low = data[preprocessor.low_level_features].values
-    y = data['Category'].values
-
-    X_high_train, X_high_test, X_low_train, X_low_test, y_train, y_test = train_test_split(
-        X_high, X_low, y, test_size=0.2, stratify=y, random_state=42
-    )
-    logging.info(f"Split data into training and testing sets.")
-
-    # Save training and testing datasets
-    np.save('./data/X_high_train.npy', X_high_train)
-    np.save('./data/X_low_train.npy', X_low_train)
-    np.save('./data/y_train.npy', y_train)
-    np.save('./data/X_high_test.npy', X_high_test)
-    np.save('./data/X_low_test.npy', X_low_test)
-    np.save('./data/y_test.npy', y_test)
-    logging.info("Saved training and testing datasets.")
-
-    # Save mappings (already saved during mapping)
-    logging.info("Data preprocessing completed successfully.")
 
 
 if __name__ == "__main__":
