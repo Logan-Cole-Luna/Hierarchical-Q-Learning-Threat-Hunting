@@ -42,7 +42,7 @@ class Trainer:
         """
         for episode in range(1, self.episodes + 1):
             # Reset environment and obtain initial state
-            state_high, state_low, label = self.env.reset()
+            state_high, state_low, high_label, low_label = self.env.reset()  # Updated to receive separate high and low labels
             state_high = np.reshape(state_high, [1, self.high_agent.state_size])
             state_low = np.reshape(state_low, [1, self.low_agent.state_size])
             done = False
@@ -54,8 +54,8 @@ class Trainer:
                 action_high = self.high_agent.act(state_high)
                 action_low = self.low_agent.act(state_low)
                 
-                # Environment step: execute actions and observe next state, reward, and done flag
-                (next_state_high, next_state_low, next_label), (reward_high, reward_low), done = self.env.step(action_high, action_low)
+                # Environment step: execute actions and observe next state, rewards, and done flag
+                (next_state_high, next_state_low, next_high_label, next_low_label), (reward_high, reward_low), done = self.env.step(action_high, action_low)
                 
                 # Reshape next states for consistency
                 if not done:

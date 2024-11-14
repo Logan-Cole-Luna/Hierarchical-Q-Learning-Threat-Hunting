@@ -1,6 +1,6 @@
-"""
-Train.py
+# train.py
 
+"""
 Main script for setting up, training, evaluating, and overfit testing high-level and low-level agents
 in an intrusion detection environment. The script loads preprocessed data, initializes the environment 
 and agents, trains the agents on full data, tests for overfitting on a subset, saves their models, 
@@ -62,16 +62,19 @@ def train_and_evaluate():
     data_dir = 'data'
     X_high_train = np.load(os.path.join(data_dir, 'X_high_train.npy'))
     X_low_train = np.load(os.path.join(data_dir, 'X_low_train.npy'))
-    y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
+    y_high_train = np.load(os.path.join(data_dir, 'y_high_train.npy'))
+    y_low_train = np.load(os.path.join(data_dir, 'y_low_train.npy'))
     X_high_test = np.load(os.path.join(data_dir, 'X_high_test.npy'))
     X_low_test = np.load(os.path.join(data_dir, 'X_low_test.npy'))
-    y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
+    y_high_test = np.load(os.path.join(data_dir, 'y_high_test.npy'))
+    y_low_test = np.load(os.path.join(data_dir, 'y_low_test.npy'))
     
     # Initialize environment
     env = IntrusionDetectionEnv(
         X_high=X_high_train,
         X_low=X_low_train,
-        y=y_train,
+        y_high=y_high_train,
+        y_low=y_low_train,
         high_agent_action_space=None,
         low_agent_action_space=None,
         mappings_dir=mappings_dir
@@ -126,7 +129,8 @@ def train_and_evaluate():
         low_agent=low_agent,
         X_high_test=X_high_test,
         X_low_test=X_low_test,
-        y_test=y_test
+        y_high_test=y_high_test,
+        y_low_test=y_low_test
     )
     evaluator.evaluate_agents()
 
@@ -145,10 +149,11 @@ def test_for_overfit():
     # Initialize Q-Networks
     state_size_high = X_high_subset.shape[1]
     state_size_low = X_low_subset.shape[1]
-    action_size = len(np.unique(y_high_subset))
+    high_action_size = len(np.unique(y_high_subset))
+    low_action_size = len(np.unique(y_low_subset))
 
-    q_network_high = QNetwork(state_size_high, action_size, learning_rate=0.001)
-    q_network_low = QNetwork(state_size_low, action_size, learning_rate=0.001)
+    q_network_high = QNetwork(state_size_high, high_action_size, learning_rate=0.001)
+    q_network_low = QNetwork(state_size_low, low_action_size, learning_rate=0.001)
 
     # Train with early stopping
     num_epochs = 1000
@@ -162,8 +167,14 @@ def test_for_overfit():
     logging.info("Starting overfit testing on subset data...")
 
     for epoch in range(1, num_epochs + 1):
-        loss_high = q_network_high.train_on_batch(X_high_subset, y_high_subset)
-        loss_low = q_network_low.train_on_batch(X_low_subset, y_low_subset)
+        # One-hot encode targets to match the output shape of q_values
+        y_high_subset_one_hot = np.eye(high_action_size)[y_high_subset]
+        y_low_subset_one_hot = np.eye(low_action_size)[y_low_subset]
+
+        # Train with one-hot encoded targets
+        loss_high = q_network_high.train_on_batch(X_high_subset, y_high_subset_one_hot)
+        loss_low = q_network_low.train_on_batch(X_low_subset, y_low_subset_one_hot)
+
 
         loss_high_history.append(loss_high)
         loss_low_history.append(loss_low)
@@ -195,16 +206,18 @@ def test_for_overfit():
     logging.info(f"High-Level Q-Network Accuracy on Subset: {accuracy_high * 100:.2f}%")
     logging.info(f"Low-Level Q-Network Accuracy on Subset: {accuracy_low * 100:.2f}%")
 
-    target_names = [f"Class {label}" for label in np.unique(y_high_subset)]
+    target_names_high = [f"Class {label}" for label in np.unique(y_high_subset)]
+    target_names_low = [f"Class {label}" for label in np.unique(y_low_subset)]
+
     print("\nClassification Report for High-Level Q-Network:")
-    print(classification_report(y_high_subset, predicted_actions_high, target_names=target_names, zero_division=0))
+    print(classification_report(y_high_subset, predicted_actions_high, target_names=target_names_high, zero_division=0))
     print("Classification Report for Low-Level Q-Network:")
-    print(classification_report(y_low_subset, predicted_actions_low, target_names=target_names, zero_division=0))
+    print(classification_report(y_low_subset, predicted_actions_low, target_names=target_names_low, zero_division=0))
 
     cm_high = confusion_matrix(y_high_subset, predicted_actions_high)
     cm_low = confusion_matrix(y_low_subset, predicted_actions_low)
-    Visuals.plot_confusion_matrix(cm_high, 'Confusion Matrix - High-Level Q-Network', target_names, cmap='Blues')
-    Visuals.plot_confusion_matrix(cm_low, 'Confusion Matrix - Low-Level Q-Network', target_names, cmap='Greens')
+    Visuals.plot_confusion_matrix(cm_high, 'Confusion Matrix - High-Level Q-Network', target_names_high, cmap='Blues')
+    Visuals.plot_confusion_matrix(cm_low, 'Confusion Matrix - Low-Level Q-Network', target_names_low, cmap='Greens')
 
     y_high_binarized = label_binarize(y_high_subset, classes=np.unique(y_high_subset))
     y_low_binarized = label_binarize(y_low_subset, classes=np.unique(y_low_subset))
@@ -212,7 +225,7 @@ def test_for_overfit():
     Visuals.plot_roc_curves(predictions_low, y_low_binarized, np.unique(y_low_subset), 'ROC Curves - Low-Level Q-Network')
 
 def main():
-    train_and_evaluate()
+    #train_and_evaluate()
     test_for_overfit()
 
 if __name__ == "__main__":

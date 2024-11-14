@@ -1,7 +1,5 @@
 """
-IntrusionDetectionEnv.py
-
-Defines the `IntrusionDetectionEnv` class for a custom reinforcement learning environment designed
+Defines the IntrusionDetectionEnv class for a custom reinforcement learning environment designed
 for intrusion detection. The environment includes high-level and low-level feature spaces, along with
 category and anomaly mappings for different actions the agent can take.
 
@@ -14,9 +12,9 @@ import json
 from RewardCalculator import RewardCalculator
 
 class IntrusionDetectionEnv:
-    def __init__(self, X_high, X_low, y, high_agent_action_space, low_agent_action_space, mappings_dir):
+    def __init__(self, X_high, X_low, y_high, y_low, high_agent_action_space, low_agent_action_space, mappings_dir):
         """
-        Initializes the environment with feature matrices, label array, action spaces, and mappings.
+        Initializes the environment with feature matrices, labels, action spaces, and mappings.
 
         Parameters:
         -----------
@@ -24,8 +22,10 @@ class IntrusionDetectionEnv:
             Feature matrix for high-level actions, used to represent broader categories in the data.
         X_low : np.ndarray
             Feature matrix for low-level actions, used for finer-grained anomaly detection.
-        y : np.ndarray
-            Labels for each sample, indicating either the type of intrusion or normal activity.
+        y_high : np.ndarray
+            High-level labels for each sample, indicating the category of intrusion or normal activity.
+        y_low : np.ndarray
+            Low-level labels for each sample, indicating specific anomaly types or normal activity.
         high_agent_action_space : int
             Total number of high-level actions available to the agent.
         low_agent_action_space : int
@@ -36,8 +36,9 @@ class IntrusionDetectionEnv:
         # Store feature matrices and labels
         self.X_high = X_high
         self.X_low = X_low
-        self.y = y
-        self.num_samples = len(y)
+        self.y_high = y_high
+        self.y_low = y_low
+        self.num_samples = len(y_high)
         self.current_step = 0
         self.done = False
         
@@ -65,7 +66,7 @@ class IntrusionDetectionEnv:
         Returns:
         --------
         tuple
-            Initial state as a tuple of high-level and low-level features and label.
+            Initial state as a tuple of high-level and low-level features and labels.
         """
         self.current_step = 0
         self.done = False
@@ -78,13 +79,14 @@ class IntrusionDetectionEnv:
         Returns:
         --------
         tuple or None
-            Tuple (state_high, state_low, label) if within bounds, or None if episode is done.
+            Tuple (state_high, state_low, high_label, low_label) if within bounds, or None if episode is done.
         """
         if self.current_step < self.num_samples:
             state_high = self.X_high[self.current_step]
             state_low = self.X_low[self.current_step]
-            label = self.y[self.current_step]
-            return state_high, state_low, label
+            high_label = self.y_high[self.current_step]
+            low_label = self.y_low[self.current_step]
+            return state_high, state_low, high_label, low_label
         else:
             self.done = True
             return None
@@ -103,7 +105,7 @@ class IntrusionDetectionEnv:
         Returns:
         --------
         tuple
-            - Current state as (state_high, state_low, label).
+            - Current state as (state_high, state_low, high_label, low_label).
             - Reward tuple (reward_high, reward_low) for high and low-level actions.
             - Boolean indicating if the episode has finished.
         
@@ -115,12 +117,12 @@ class IntrusionDetectionEnv:
         if self.done:
             raise Exception("Episode has finished. Call reset() to start a new episode.")
         
-        # Retrieve current state and label
-        state_high, state_low, label = self._get_state()
+        # Retrieve current state and labels
+        state_high, state_low, high_label, low_label = self._get_state()
         
         # Calculate rewards using the RewardCalculator
-        reward_high = self.reward_calculator.calculate_high_reward(action_high, label)
-        reward_low = self.reward_calculator.calculate_low_reward(action_low, label)
+        reward_high = self.reward_calculator.calculate_high_reward(action_high, high_label)
+        reward_low = self.reward_calculator.calculate_low_reward(action_low, low_label)
         
         # Update step counter and check if the episode is complete
         self.current_step += 1
@@ -130,4 +132,4 @@ class IntrusionDetectionEnv:
         # Get the next state
         next_state = self._get_state()
         
-        return (state_high, state_low, label), (reward_high, reward_low), self.done
+        return (state_high, state_low, high_label, low_label), (reward_high, reward_low), self.done
