@@ -41,24 +41,32 @@ class IntrusionDetectionEnv:
         self.num_samples = len(y_high)
         self.current_step = 0
         self.done = False
-        
-        # Action space sizes for high and low-level agents
+
+        # Internal state to simulate an alert level for sequential decision-making
+        self.internal_state = {'alert_level': 0}
+
         self.high_agent_action_space = high_agent_action_space
         self.low_agent_action_space = low_agent_action_space
-        
-        # Load category and anomaly mappings from JSON files
+
+        # Load category and anomaly mappings
         with open(f"{mappings_dir}/category_to_id.json", 'r') as f:
             self.category_to_id = json.load(f)
         with open(f"{mappings_dir}/anomaly_to_id.json", 'r') as f:
             self.anomaly_to_id = json.load(f)
         
+        
+        # Create inverse mappings (optional, useful for debugging or displaying actions)
+
         # Create inverse mappings (optional, useful for debugging or displaying actions)
         self.id_to_category = {v: k for k, v in self.category_to_id.items()}
         self.id_to_anomaly = {v: k for k, v in self.anomaly_to_id.items()}
         
+        
+        # Initialize the reward calculator with mappings
+
         # Initialize the reward calculator with mappings
         self.reward_calculator = RewardCalculator(self.category_to_id, self.anomaly_to_id)
-    
+
     def reset(self):
         """
         Resets the environment to the beginning of a new episode.
@@ -70,8 +78,9 @@ class IntrusionDetectionEnv:
         """
         self.current_step = 0
         self.done = False
+        self.internal_state['alert_level'] = 0
         return self._get_state()
-    
+
     def _get_state(self):
         """
         Retrieves the current state of the environment.
@@ -86,11 +95,14 @@ class IntrusionDetectionEnv:
             state_low = self.X_low[self.current_step]
             high_label = self.y_high[self.current_step]
             low_label = self.y_low[self.current_step]
-            return state_high, state_low, high_label, low_label
+
+            combined_state_high = np.concatenate((state_high, [self.internal_state['alert_level']]))
+            combined_state_low = np.concatenate((state_low, [self.internal_state['alert_level']]))
+            return combined_state_high, combined_state_low, high_label, low_label
         else:
             self.done = True
             return None
-    
+
     def step(self, action_high, action_low):
         """
         Executes one step within the environment, given high and low-level actions.
@@ -108,28 +120,33 @@ class IntrusionDetectionEnv:
             - Current state as (state_high, state_low, high_label, low_label).
             - Reward tuple (reward_high, reward_low) for high and low-level actions.
             - Boolean indicating if the episode has finished.
-        
-        Raises:
-        -------
-        Exception
-            If called when the episode has already finished.
         """
         if self.done:
             raise Exception("Episode has finished. Call reset() to start a new episode.")
         
+        
+        # Retrieve current state and labels
+
         # Retrieve current state and labels
         state_high, state_low, high_label, low_label = self._get_state()
-        
-        # Calculate rewards using the RewardCalculator
-        reward_high = self.reward_calculator.calculate_high_reward(action_high, high_label)
-        reward_low = self.reward_calculator.calculate_low_reward(action_low, low_label)
-        
-        # Update step counter and check if the episode is complete
+
+        reward_high = self.reward_calculator.calculate_high_reward(action_high, high_label, self.internal_state)
+        reward_low = self.reward_calculator.calculate_low_reward(action_low, low_label, self.internal_state)
+
+        if action_high != high_label:
+            self.internal_state['alert_level'] += 1
+        else:
+            self.internal_state['alert_level'] = max(0, self.internal_state['alert_level'] - 1)
+
+        self.internal_state['alert_level'] = min(self.internal_state['alert_level'], 5)
+
         self.current_step += 1
         if self.current_step >= self.num_samples:
             self.done = True
         
+        
+        # Get the next state
+
         # Get the next state
         next_state = self._get_state()
-        
         return (state_high, state_low, high_label, low_label), (reward_high, reward_low), self.done
