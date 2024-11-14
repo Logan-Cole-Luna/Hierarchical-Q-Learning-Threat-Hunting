@@ -1,0 +1,10 @@
+- Update Train.py to be up to date w/ overfit.py so overfit.py can be removed
+
+- Update the visuals, eg network flow, transition to plotly?
+
+- Larger data segment similar to how the subset is made in 
+    preprocess where it evenly divides the data so its not all benign
+
+- Improve reward function 
+
+- Implement proper Q learning algorithm

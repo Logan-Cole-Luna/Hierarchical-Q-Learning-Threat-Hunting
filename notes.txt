@@ -1,0 +1,26 @@
+
+Dataset Info:
+	1.	Destination Port: Port number of the destination (receiver).
+	2.	Flow Duration: Time duration of the network flow (milliseconds).
+	3.	Total Fwd Packets and Total Backward Packets: Counts of packets sent in the forward and backward directions.
+	4.	Total Length of Fwd Packets and Total Length of Bwd Packets: Sum of the payload bytes of packets in forward and backward directions.
+	5.	Fwd Packet Length Max/Min/Mean/Std: Descriptive statistics (maximum, minimum, mean, and standard deviation) of packet lengths in the forward direction.
+	6.	Bwd Packet Length Max/Min/Mean/Std: Similar statistics for packet lengths in the backward direction.
+	7.	Flow Bytes/s and Flow Packets/s: Flow byte rate and packet rate over time.
+	8.	Flow IAT Mean/Std/Max/Min: Inter-arrival times (IAT) of packets within the flow, with descriptive statistics (mean, standard deviation, max, min).
+	9.	Fwd IAT Total/Mean/Std/Max/Min: Inter-arrival times specifically for packets in the forward direction.
+	10.	Bwd IAT Total/Mean/Std/Max/Min: Inter-arrival times for packets in the backward direction.
+	11.	Fwd PSH Flags and Bwd PSH Flags: Counts of “push” flags in forward and backward directions, indicating data that should be immediately pushed to the receiving application.
+	12.	Fwd URG Flags and Bwd URG Flags: Counts of “urgent” flags, signaling high-priority data.
+	13.	Fwd Header Length and Bwd Header Length: Header lengths of packets in forward and backward directions.
+	14.	Fwd Packets/s and Bwd Packets/s: Rates of packets per second in forward and backward directions.
+	15.	Min Packet Length / Max Packet Length / Packet Length Mean / Std / Variance: Descriptive statistics of the packet lengths across the flow.
+	16.	Flag Counts (e.g., FIN, SYN, RST, PSH, ACK, URG, CWE, ECE): Counts of TCP flags used in packet headers, which indicate the state and control functions of the packets (e.g., SYN for connection start, FIN for finish).
+	17.	Down/Up Ratio: Ratio of backward to forward packets.
+	18.	Average Packet Size: Mean packet size across the flow.
+	19.	Avg Fwd Segment Size / Avg Bwd Segment Size: Average sizes of segments in forward and backward directions.
+	20.	Bulk Features (e.g., Fwd Avg Bytes/Bulk, Fwd Avg Packets/Bulk): Bulk statistics showing average bytes and packets in a data burst.
+	21.	Subflow Fwd Packets / Subflow Fwd Bytes / Subflow Bwd Packets / Subflow Bwd Bytes: Statistics about smaller parts (subflows) of the larger flow in terms of packets and bytes.
+	22.	Init_Win_bytes_forward / Init_Win_bytes_backward: Initial TCP window sizes in forward and backward directions.
+	23.	Active / Idle Times (Mean, Std, Max, Min): Times that indicate active and idle states of the flow, with statistics.
+	24.	Label: Classification of the flow (e.g., “BENIGN” indicates normal traffic, while other labels might represent different types of attacks).
