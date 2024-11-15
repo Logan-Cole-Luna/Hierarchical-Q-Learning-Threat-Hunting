@@ -12,28 +12,29 @@ import json
 from utils.reward_calculator import RewardCalculator
 
 class IntrusionDetectionEnv:
-    def __init__(self, X_high, X_low, y_high, y_low, high_agent_action_space, low_agent_action_space, mappings_dir):
+    def __init__(self, X_high, X_low, y_high, y_low, high_agent_action_space, low_agent_action_space, mappings_dir, history_length=1):
         """
         Initializes the environment with feature matrices, labels, action spaces, and mappings.
 
         Parameters:
         -----------
         X_high : np.ndarray
-            Feature matrix for high-level actions, used to represent broader categories in the data.
+            Feature matrix for high-level actions.
         X_low : np.ndarray
-            Feature matrix for low-level actions, used for finer-grained anomaly detection.
+            Feature matrix for low-level actions.
         y_high : np.ndarray
-            High-level labels for each sample, indicating the category of intrusion or normal activity.
+            High-level labels for each sample.
         y_low : np.ndarray
-            Low-level labels for each sample, indicating specific anomaly types or normal activity.
+            Low-level labels for each sample.
         high_agent_action_space : int
             Total number of high-level actions available to the agent.
         low_agent_action_space : int
             Total number of low-level actions available to the agent.
         mappings_dir : str
             Directory path for JSON files mapping categories and anomalies to IDs.
+        history_length : int, optional
+            Number of previous states to include in the current state (default is 1).
         """
-        # Store feature matrices and labels
         self.X_high = X_high
         self.X_low = X_low
         self.y_high = y_high
@@ -41,9 +42,6 @@ class IntrusionDetectionEnv:
         self.num_samples = len(y_high)
         self.current_step = 0
         self.done = False
-
-        # Internal state to simulate an alert level for sequential decision-making
-        self.internal_state = {'alert_level': 0}
 
         self.high_agent_action_space = high_agent_action_space
         self.low_agent_action_space = low_agent_action_space
@@ -53,19 +51,23 @@ class IntrusionDetectionEnv:
             self.category_to_id = json.load(f)
         with open(f"{mappings_dir}/anomaly_to_id.json", 'r') as f:
             self.anomaly_to_id = json.load(f)
-        
-        
-        # Create inverse mappings (optional, useful for debugging or displaying actions)
 
-        # Create inverse mappings (optional, useful for debugging or displaying actions)
-        self.id_to_category = {v: k for k, v in self.category_to_id.items()}
-        self.id_to_anomaly = {v: k for k, v in self.anomaly_to_id.items()}
-        
-        
-        # Initialize the reward calculator with mappings
+        # Extract benign_id from category_to_id
+        if 'BENIGN' in self.category_to_id:
+            self.benign_id = self.category_to_id['BENIGN']
+        else:
+            raise ValueError("BENIGN category not found in category_to_id mapping.")
 
-        # Initialize the reward calculator with mappings
-        self.reward_calculator = RewardCalculator(self.category_to_id, self.anomaly_to_id)
+        # Initialize RewardCalculator with benign_id
+        self.reward_calculator = RewardCalculator(
+            self.category_to_id, 
+            self.anomaly_to_id, 
+            self.benign_id,
+            high_reward=1.0, 
+            low_reward=-1.0, 
+            benign_reward=1.0, 
+            epsilon=1e-6
+        )
 
     def reset(self):
         """
@@ -78,7 +80,14 @@ class IntrusionDetectionEnv:
         """
         self.current_step = 0
         self.done = False
-        self.internal_state['alert_level'] = 0
+
+        # Shuffle data to simulate dynamic environment
+        permutation = np.random.permutation(self.num_samples)
+        self.X_high = self.X_high[permutation]
+        self.X_low = self.X_low[permutation]
+        self.y_high = self.y_high[permutation]
+        self.y_low = self.y_low[permutation]
+
         return self._get_state()
 
     def _get_state(self):
@@ -95,15 +104,12 @@ class IntrusionDetectionEnv:
             state_low = self.X_low[self.current_step]
             high_label = self.y_high[self.current_step]
             low_label = self.y_low[self.current_step]
-
-            combined_state_high = np.concatenate((state_high, [self.internal_state['alert_level']]))
-            combined_state_low = np.concatenate((state_low, [self.internal_state['alert_level']]))
-            return combined_state_high, combined_state_low, high_label, low_label
+            return state_high, state_low, high_label, low_label
         else:
             self.done = True
             return None
 
-    def step(self, action_high, action_low):
+    def step(self, action_high, action_low, high_confidence=1.0, low_confidence=1.0):
         """
         Executes one step within the environment, given high and low-level actions.
 
@@ -113,6 +119,10 @@ class IntrusionDetectionEnv:
             The high-level action selected by the agent (corresponds to a category).
         action_low : int
             The low-level action selected by the agent (corresponds to an anomaly).
+        high_confidence : float, optional
+            Confidence level of the high-level action (default is 1.0).
+        low_confidence : float, optional
+            Confidence level of the low-level action (default is 1.0).
 
         Returns:
         --------
@@ -123,30 +133,29 @@ class IntrusionDetectionEnv:
         """
         if self.done:
             raise Exception("Episode has finished. Call reset() to start a new episode.")
-        
-        
-        # Retrieve current state and labels
 
-        # Retrieve current state and labels
-        state_high, state_low, high_label, low_label = self._get_state()
+        state = self._get_state()
+        if state is None:
+            return None, (0.0, 0.0), self.done
 
-        reward_high = self.reward_calculator.calculate_high_reward(action_high, high_label, self.internal_state)
-        reward_low = self.reward_calculator.calculate_low_reward(action_low, low_label, self.internal_state)
+        state_high, state_low, high_label, low_label = state
 
-        if action_high != high_label:
-            self.internal_state['alert_level'] += 1
-        else:
-            self.internal_state['alert_level'] = max(0, self.internal_state['alert_level'] - 1)
+        # Calculate rewards using the RewardCalculator
+        reward_high, reward_low = self.reward_calculator.calculate_rewards(
+            high_pred=action_high,
+            high_true=high_label,
+            high_confidence=high_confidence,
+            low_pred=action_low,
+            low_true=low_label,
+            low_confidence=low_confidence
+        )
 
-        self.internal_state['alert_level'] = min(self.internal_state['alert_level'], 5)
-
+        # Update step counter and check if the episode is complete
         self.current_step += 1
         if self.current_step >= self.num_samples:
             self.done = True
-        
-        
-        # Get the next state
 
         # Get the next state
         next_state = self._get_state()
-        return (state_high, state_low, high_label, low_label), (reward_high, reward_low), self.done
+
+        return (next_state if not self.done else None), (reward_high, reward_low), self.done

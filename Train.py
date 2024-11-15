@@ -19,57 +19,57 @@ Functions:
 import os
 import sys
 import numpy as np
-from utils.intrusion_detection_env import IntrusionDetectionEnv
+import logging
+import argparse
+import torch
+import random
 from agents.high_level_agent import HighLevelAgent
 from agents.low_level_agent import LowLevelAgent
-from utils.reward_calculator import RewardCalculator
+from utils.q_network import QNetwork
+from utils.intrusion_detection_env import IntrusionDetectionEnv
 from utils.trainer import Trainer
 from scripts.evaluator import Evaluator
-from utils.q_network import QNetwork
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.preprocessing import label_binarize
-import logging
-from utils.visualizer import Visuals
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def set_seed(seed=42):
-    import torch
-    import random
-
     np.random.seed(seed)
-    torch.manual_seed(seed)
     random.seed(seed)
+    torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
 
-def train_and_evaluate():
-    """
-    Function for setting up, training, and evaluating agents on full data.
-    """
-    # Load data and initialize mappings
-    mappings_dir = os.path.join('data', 'mappings')
+def train_agents(overfit=False):
+    set_seed(42)
+    data_dir = 'data'
+    mappings_dir = os.path.join(data_dir, 'mappings')
     category_to_id_path = os.path.join(mappings_dir, 'category_to_id.json')
     anomaly_to_id_path = os.path.join(mappings_dir, 'anomaly_to_id.json')
-    
+
     if not os.path.exists(category_to_id_path) or not os.path.exists(anomaly_to_id_path):
-        print("Error: Mapping files not found. Please run preprocess.py first.")
+        logging.error("Mapping files not found. Please run preprocess.py first.")
         sys.exit(1)
-    
-    # Load training and test data
-    data_dir = 'data'
-    X_high_train = np.load(os.path.join(data_dir, 'X_high_train.npy'))
-    X_low_train = np.load(os.path.join(data_dir, 'X_low_train.npy'))
-    y_high_train = np.load(os.path.join(data_dir, 'y_high_train.npy'))
-    y_low_train = np.load(os.path.join(data_dir, 'y_low_train.npy'))
-    X_high_test = np.load(os.path.join(data_dir, 'X_high_test.npy'))
-    X_low_test = np.load(os.path.join(data_dir, 'X_low_test.npy'))
-    y_high_test = np.load(os.path.join(data_dir, 'y_high_test.npy'))
-    y_low_test = np.load(os.path.join(data_dir, 'y_low_test.npy'))
-    
-    # Initialize environment
+
+    if overfit:
+        logging.info("Training in overfit mode using subset of data.")
+        X_high_train = np.load(os.path.join(data_dir, 'subset', 'X_high_subset.npy'))
+        X_low_train = np.load(os.path.join(data_dir, 'subset', 'X_low_subset.npy'))
+        y_high_train = np.load(os.path.join(data_dir, 'subset', 'y_high_subset.npy'))
+        y_low_train = np.load(os.path.join(data_dir, 'subset', 'y_low_subset.npy'))
+        X_high_test = X_high_train.copy()
+        X_low_test = X_low_train.copy()
+        y_high_test = y_high_train.copy()
+        y_low_test = y_low_train.copy()
+    else:
+        logging.info("Training in normal mode using full dataset.")
+        X_high_train = np.load(os.path.join(data_dir, 'X_high_train.npy'))
+        X_low_train = np.load(os.path.join(data_dir, 'X_low_train.npy'))
+        y_high_train = np.load(os.path.join(data_dir, 'y_high_train.npy'))
+        y_low_train = np.load(os.path.join(data_dir, 'y_low_train.npy'))
+        X_high_test = np.load(os.path.join(data_dir, 'X_high_test.npy'))
+        X_low_test = np.load(os.path.join(data_dir, 'X_low_test.npy'))
+        y_high_test = np.load(os.path.join(data_dir, 'y_high_test.npy'))
+        y_low_test = np.load(os.path.join(data_dir, 'y_low_test.npy'))
+
+    # Initialize environment without historical states
     env = IntrusionDetectionEnv(
         X_high=X_high_train,
         X_low=X_low_train,
@@ -77,156 +77,97 @@ def train_and_evaluate():
         y_low=y_low_train,
         high_agent_action_space=None,
         low_agent_action_space=None,
-        mappings_dir=mappings_dir
+        mappings_dir=mappings_dir,
+        history_length=1  # Remove temporal stacking
     )
-    
+
     # Define action space sizes
     high_agent_action_space = len(env.category_to_id)
     low_agent_action_space = len(env.anomaly_to_id)
     env.high_agent_action_space = high_agent_action_space
     env.low_agent_action_space = low_agent_action_space
-    
-    # Initialize agents
+
+    # Calculate the correct state sizes without extra features
+    feature_size_high = X_high_train.shape[1]
+    feature_size_low = X_low_train.shape[1]
+    state_size_high = feature_size_high  # No history stacking
+    state_size_low = feature_size_low    # No history stacking
+
+    # Initialize agents with correct state sizes
     high_agent = HighLevelAgent(
-        state_size=X_high_train.shape[1],
+        state_size=state_size_high,
         action_size=high_agent_action_space,
         learning_rate=0.001,
         gamma=0.95,
         epsilon=1.0,
         epsilon_min=0.01,
         epsilon_decay=0.995,
-        batch_size=64
+        batch_size=64,
+        target_update_freq=10  # Now supported by BaseAgent
     )
-    
+
     low_agent = LowLevelAgent(
-        state_size=X_low_train.shape[1],
+        state_size=state_size_low,
         action_size=low_agent_action_space,
         learning_rate=0.001,
         gamma=0.95,
         epsilon=1.0,
         epsilon_min=0.01,
         epsilon_decay=0.995,
-        batch_size=64
+        batch_size=64,
+        target_update_freq=10  # Now supported by BaseAgent
     )
-    
-    # Train agents
+
+    # Initialize Trainer
     trainer = Trainer(
         env=env,
         high_agent=high_agent,
         low_agent=low_agent,
         episodes=1000
     )
+
+    # Train agents
     trainer.train()
-    
+
     # Save models
-    high_agent.save('high_level_agent.h5')
-    low_agent.save('low_level_agent.h5')
-    print("Training completed and models saved.")
-    
-    # Evaluation
+    high_model_path = 'high_level_agent_overfit.pth' if overfit else 'high_level_agent.pth'
+    low_model_path = 'low_level_agent_overfit.pth' if overfit else 'low_level_agent.pth'
+    if overfit:
+        logging.info("Training completed in overfit mode. Saving overfit models.")
+    else:
+        logging.info("Training completed. Saving models.")
+
+    high_agent.save(high_model_path)
+    low_agent.save(low_model_path)
+    logging.info(f"Models saved as {high_model_path} and {low_model_path}.")
+
+    # Prepare test data without historical states
+    X_high_test_historical = X_high_test  # No stacking
+    X_low_test_historical = X_low_test    # No stacking
+    y_high_test_historical = y_high_test
+    y_low_test_historical = y_low_test
+
+    # Debugging: Print shapes
+    print(f"Shape of X_high_test_historical: {X_high_test_historical.shape}")
+    print(f"Shape of X_low_test_historical: {X_low_test_historical.shape}")
+    print(f"Shape of y_high_test_historical: {y_high_test_historical.shape}")
+    print(f"Shape of y_low_test_historical: {y_low_test_historical.shape}")
+
+    # Initialize Evaluator with updated parameters
     evaluator = Evaluator(
         high_agent=high_agent,
         low_agent=low_agent,
-        X_high_test=X_high_test,
-        X_low_test=X_low_test,
-        y_high_test=y_high_test,
-        y_low_test=y_low_test
+        X_high_test=X_high_test_historical,
+        X_low_test=X_low_test_historical,
+        y_high_test=y_high_test_historical,
+        y_low_test=y_low_test_historical
     )
+
+    # Evaluate agents
     evaluator.evaluate_agents()
 
-def test_for_overfit():
-    """
-    Function to test for overfitting on a subset of data and visualize results.
-    """
-    set_seed(42)
-
-    # Load subset data
-    X_high_subset = np.load('./data/subset/X_high_subset.npy')
-    X_low_subset = np.load('./data/subset/X_low_subset.npy')
-    y_high_subset = np.load('./data/subset/y_high_subset.npy')
-    y_low_subset = np.load('./data/subset/y_low_subset.npy')
-
-    # Initialize Q-Networks
-    state_size_high = X_high_subset.shape[1]
-    state_size_low = X_low_subset.shape[1]
-    high_action_size = len(np.unique(y_high_subset))
-    low_action_size = len(np.unique(y_low_subset))
-
-    q_network_high = QNetwork(state_size_high, high_action_size, learning_rate=0.001)
-    q_network_low = QNetwork(state_size_low, low_action_size, learning_rate=0.001)
-
-    # Train with early stopping
-    num_epochs = 1000
-    patience = 100
-    patience_counter = 0
-    best_loss_high = float('inf')
-    best_loss_low = float('inf')
-    loss_high_history = []
-    loss_low_history = []
-
-    logging.info("Starting overfit testing on subset data...")
-
-    for epoch in range(1, num_epochs + 1):
-        # One-hot encode targets to match the output shape of q_values
-        y_high_subset_one_hot = np.eye(high_action_size)[y_high_subset]
-        y_low_subset_one_hot = np.eye(low_action_size)[y_low_subset]
-
-        # Train with one-hot encoded targets
-        loss_high = q_network_high.train_on_batch(X_high_subset, y_high_subset_one_hot)
-        loss_low = q_network_low.train_on_batch(X_low_subset, y_low_subset_one_hot)
-
-
-        loss_high_history.append(loss_high)
-        loss_low_history.append(loss_low)
-
-        if loss_high < best_loss_high and loss_low < best_loss_low:
-            best_loss_high = loss_high
-            best_loss_low = loss_low
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        if patience_counter >= patience:
-            logging.info(f"No improvement in loss for {patience} epochs. Early stopping at epoch {epoch}.")
-            break
-
-    logging.info("Overfit testing completed.")
-
-    # Visualize training loss
-    Visuals.plot_loss(loss_high_history, loss_low_history)
-
-    # Evaluation
-    predictions_high = q_network_high.predict(X_high_subset)
-    predictions_low = q_network_low.predict(X_low_subset)
-    predicted_actions_high = np.argmax(predictions_high, axis=1)
-    predicted_actions_low = np.argmax(predictions_low, axis=1)
-
-    accuracy_high = np.mean(predicted_actions_high == y_high_subset)
-    accuracy_low = np.mean(predicted_actions_low == y_low_subset)
-    logging.info(f"High-Level Q-Network Accuracy on Subset: {accuracy_high * 100:.2f}%")
-    logging.info(f"Low-Level Q-Network Accuracy on Subset: {accuracy_low * 100:.2f}%")
-
-    target_names_high = [f"Class {label}" for label in np.unique(y_high_subset)]
-    target_names_low = [f"Class {label}" for label in np.unique(y_low_subset)]
-
-    print("\nClassification Report for High-Level Q-Network:")
-    print(classification_report(y_high_subset, predicted_actions_high, target_names=target_names_high, zero_division=0))
-    print("Classification Report for Low-Level Q-Network:")
-    print(classification_report(y_low_subset, predicted_actions_low, target_names=target_names_low, zero_division=0))
-
-    cm_high = confusion_matrix(y_high_subset, predicted_actions_high)
-    cm_low = confusion_matrix(y_low_subset, predicted_actions_low)
-    Visuals.plot_confusion_matrix(cm_high, 'Confusion Matrix - High-Level Q-Network', target_names_high, cmap='Blues')
-    Visuals.plot_confusion_matrix(cm_low, 'Confusion Matrix - Low-Level Q-Network', target_names_low, cmap='Greens')
-
-    y_high_binarized = label_binarize(y_high_subset, classes=np.unique(y_high_subset))
-    y_low_binarized = label_binarize(y_low_subset, classes=np.unique(y_low_subset))
-    Visuals.plot_roc_curves(predictions_high, y_high_binarized, np.unique(y_high_subset), 'ROC Curves - High-Level Q-Network')
-    Visuals.plot_roc_curves(predictions_low, y_low_binarized, np.unique(y_low_subset), 'ROC Curves - Low-Level Q-Network')
-
-def main():
-    #train_and_evaluate()
-    test_for_overfit()
-
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Basic Q-Learning Threat Hunting Training')
+    parser.add_argument('--overfit', action='store_true', help='Train in overfit mode using a subset of data')
+    args = parser.parse_args()
+    train_agents(overfit=args.overfit)

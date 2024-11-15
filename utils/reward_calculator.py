@@ -11,7 +11,7 @@ Classes:
 
 class RewardCalculator:
     def __init__(self, category_to_id, anomaly_to_id, benign_id, 
-                 high_reward=1.0, low_reward=-0.5, benign_reward=0.1, epsilon=1e-6):
+                 high_reward=1.0, low_reward=-1.0, benign_reward=1.0, epsilon=1e-6):
         """
         Initializes the RewardCalculator with mappings, reward values, and a benign identifier.
 
@@ -24,13 +24,13 @@ class RewardCalculator:
         benign_id : int
             Identifier for benign categories.
         high_reward : float, optional
-            Reward for correct high-level predictions.
+            Reward for correct high-level predictions (default is +1.0).
         low_reward : float, optional
-            Penalty for incorrect predictions.
+            Penalty for incorrect predictions (default is -1.0).
         benign_reward : float, optional
-            Reward for correct benign predictions.
+            Reward for correct benign predictions (default is +1.0).
         epsilon : float, optional
-            Small constant to prevent division by zero in confidence calculations.
+            Small constant to prevent division by zero in confidence calculations (default is 1e-6).
         """
         self.category_to_id = category_to_id
         self.anomaly_to_id = anomaly_to_id
@@ -42,7 +42,7 @@ class RewardCalculator:
 
     def calculate_rewards(self, high_pred, high_true, high_confidence, low_pred, low_true, low_confidence):
         """
-        Calculates rewards for both high-level and low-level predictions based on accuracy and confidence.
+        Calculates rewards for both high-level and low-level predictions based on accuracy.
 
         Parameters:
         -----------
@@ -62,28 +62,19 @@ class RewardCalculator:
         Returns:
         --------
         tuple
-            (high_reward, low_reward) based on accuracy and confidence.
+            (reward_high, reward_low) based on accuracy.
         """
-        high_reward = 0.0
-        low_reward = 0.0
-        
-        # High-Level Reward Calculation
+        # High-Level Reward
         if high_pred == high_true:
             if high_true == self.benign_id:
-                # Correctly predicted benign case
-                high_reward = self.benign_reward * high_confidence
-                low_reward = 0.0  # No low-level action needed for benign case
+                reward_high = self.benign_reward
+                reward_low = 0.0  # No low-level action needed for benign case
             else:
-                # Correctly predicted attack type
-                high_reward = self.high_reward * high_confidence
-                # Low-Level Reward Calculation
-                if low_pred == low_true:
-                    low_reward = self.high_reward * low_confidence
-                else:
-                    low_reward = self.low_reward * low_confidence
+                reward_high = self.high_reward
+                # Low-Level Reward
+                reward_low = self.high_reward if low_pred == low_true else self.low_reward
         else:
-            # High-Level Incorrect Prediction
-            high_reward = self.low_reward * (1 - high_confidence)
-            low_reward = 0.0  # Do not penalize Low-Level network for high-level errors
-        
-        return high_reward, low_reward
+            reward_high = self.low_reward
+            reward_low = 0.0  # Do not penalize low-level agent for high-level errors
+
+        return reward_high, reward_low
