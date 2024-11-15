@@ -1,6 +1,6 @@
-"""
-Trainer.py
+# Trainer.py
 
+"""
 Defines the `Trainer` class to manage the training process for high-level and low-level agents 
 in an intrusion detection environment. The `Trainer` class coordinates interactions between 
 agents and the environment over multiple episodes.
