@@ -1,4 +1,4 @@
-# visuals.py
+# utils/visualizer.py
 
 """
 Visualization Utilities for Hierarchical Q-Learning Threat Hunting
@@ -18,7 +18,7 @@ class Visuals:
     """
 
     @staticmethod
-    def plot_loss(loss_high_history, loss_low_history):
+    def plot_loss(loss_high_history, loss_low_history, save_path=None):
         """
         Plots training loss for high-level and low-level Q-Networks.
 
@@ -28,19 +28,25 @@ class Visuals:
             List of high-level Q-Network loss values.
         loss_low_history : list
             List of low-level Q-Network loss values.
+        save_path : str, optional
+            Path to save the loss plot image. If None, the plot is displayed.
         """
         plt.figure(figsize=(10, 5))
         plt.plot(range(1, len(loss_high_history) + 1), loss_high_history, label='High-Level Loss')
         plt.plot(range(1, len(loss_low_history) + 1), loss_low_history, label='Low-Level Loss')
-        plt.xlabel('Epoch')
+        plt.xlabel('Episode')
         plt.ylabel('Loss')
-        plt.title('Training Loss Over Epochs')
+        plt.title('Training Loss Over Episodes')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        if save_path:
+            plt.savefig(save_path)
+            plt.close()
+        else:
+            plt.show()
 
     @staticmethod
-    def plot_confusion_matrix(cm, title, target_names, cmap='Blues'):
+    def plot_confusion_matrix(cm, title, target_names, save_path=None, cmap='Blues'):
         """
         Plots a confusion matrix for model predictions.
 
@@ -52,6 +58,8 @@ class Visuals:
             Title for the confusion matrix plot.
         target_names : list
             List of class names for labeling the matrix.
+        save_path : str, optional
+            Path to save the confusion matrix image. If None, the plot is displayed.
         cmap : str, optional
             Color map for the matrix (default is 'Blues').
         """
@@ -61,10 +69,15 @@ class Visuals:
         plt.title(title)
         plt.xlabel('Predicted')
         plt.ylabel('Actual')
-        plt.show()
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path)
+            plt.close()
+        else:
+            plt.show()
 
     @staticmethod
-    def plot_roc_curves(predictions, y_binarized, unique_labels, title):
+    def plot_roc_curves(predictions, y_binarized, unique_labels, title, save_path=None):
         """
         Plots ROC curves for each class in a multi-class classification.
 
@@ -78,6 +91,8 @@ class Visuals:
             List of unique label names for the classes.
         title : str
             Title for the ROC plot.
+        save_path : str, optional
+            Path to save the ROC plot image. If None, the plot is displayed.
         """
         n_classes = y_binarized.shape[1]
         fpr, tpr, roc_auc = {}, {}, {}
@@ -87,13 +102,20 @@ class Visuals:
             roc_auc[i] = auc(fpr[i], tpr[i])
 
         plt.figure(figsize=(10, 8))
-        colors = ['aqua', 'darkorange', 'cornflowerblue', 'darkgreen', 'red']
+        colors = sns.color_palette('tab10', n_colors=n_classes)
         for i, color in zip(range(n_classes), colors):
-            plt.plot(fpr[i], tpr[i], color=color, lw=2,
-                     label=f'ROC curve of Class {unique_labels[i]} (area = {roc_auc[i]:0.2f})')
+            plt.plot(fpr[i], tpr[i], color=color,
+                     lw=2, label=f'ROC curve of Class {unique_labels[i]} (AUC = {roc_auc[i]:0.2f})')
         plt.plot([0, 1], [0, 1], 'k--', lw=2)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.title(title)
         plt.legend(loc="lower right")
-        plt.show()
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path)
+            plt.close()
+        else:
+            plt.show()

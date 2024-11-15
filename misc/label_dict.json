@@ -1,0 +1,20 @@
+{
+    "category": {
+        "0": "Benign",
+        "1": "Botnet",
+        "2": "Brute-force",
+        "3": "DDoS attack",
+        "4": "DoS attack",
+        "5": "Infilteration",
+        "6": "Web attack"
+    },
+    "anomaly": {
+        "0": "Benign",
+        "1": "Botnet",
+        "2": "Brute-force",
+        "3": "DDoS attack",
+        "4": "DoS attack",
+        "5": "Infilteration",
+        "6": "Web attack"
+    }
+}
