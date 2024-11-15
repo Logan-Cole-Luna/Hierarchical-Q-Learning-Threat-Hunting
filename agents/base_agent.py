@@ -26,7 +26,7 @@ class ReplayBuffer:
             Maximum number of experiences to store (default is 2000).
         """
         self.memory = deque(maxlen=capacity)
-    
+
     def add(self, experience):
         """
         Adds a new experience to the buffer.
@@ -37,7 +37,7 @@ class ReplayBuffer:
             A tuple of (state, action, reward, next_state, done).
         """
         self.memory.append(experience)
-    
+
     def sample(self, batch_size):
         """
         Samples a random batch of experiences from the buffer.
@@ -53,7 +53,7 @@ class ReplayBuffer:
             List of randomly selected experiences.
         """
         return random.sample(self.memory, batch_size)
-    
+
     def __len__(self):
         """
         Returns the current size of the replay buffer.
@@ -92,11 +92,19 @@ class BaseAgent:
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
         self.batch_size = batch_size
-        
-        # Initialize replay buffer and Q-network
+
+        # Initialize replay buffer and Q-networks
         self.memory = ReplayBuffer(capacity=2000)
         self.q_network = QNetwork(state_size, action_size, learning_rate)
-    
+        self.target_network = QNetwork(state_size, action_size, learning_rate)
+        self.update_target_network()
+
+    def update_target_network(self):
+        """
+        Updates the target network's weights to match the main Q-network.
+        """
+        self.target_network.load_state_dict(self.q_network.state_dict())
+
     def remember(self, state, action, reward, next_state, done):
         """
         Stores an experience tuple in the replay buffer.
@@ -115,7 +123,7 @@ class BaseAgent:
             Flag indicating whether the episode ended.
         """
         self.memory.add((state, action, reward, next_state, done))
-    
+
     def act(self, state):
         """
         Chooses an action based on epsilon-greedy policy.
@@ -134,7 +142,7 @@ class BaseAgent:
             return random.randrange(self.action_size)
         q_values = self.q_network.predict(state)
         return np.argmax(q_values[0])
-    
+
     def replay(self):
         """
         Trains the agent using experiences from the replay buffer. 
@@ -142,33 +150,29 @@ class BaseAgent:
         """
         if len(self.memory) < self.batch_size:
             return
-        
+
         minibatch = self.memory.sample(self.batch_size)
         states = []
         targets = []
-        
-        # Compute target values for each experience in the minibatch
+
         for state, action, reward, next_state, done in minibatch:
             target = reward
             if not done:
-                # Add discounted maximum Q-value for the next state
-                target += self.gamma * np.amax(self.q_network.predict(next_state)[0])
-            
-            # Update the Q-value for the taken action
+                # Use the target network for more stable target Q-value estimates
+                target += self.gamma * np.amax(self.target_network.predict(next_state)[0])
+
             target_f = self.q_network.predict(state)
             target_f[0][action] = target
             states.append(state[0])
             targets.append(target_f[0])
-        
-        # Convert to numpy arrays and perform a batch update on the Q-network
+
         states = np.array(states)
         targets = np.array(targets)
         self.q_network.train_on_batch(states, targets)
-        
-        # Decay epsilon to reduce exploration over time
+
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
-    
+
     def load(self, name):
         """
         Loads the agent's model weights from a specified file.
@@ -179,7 +183,8 @@ class BaseAgent:
             Path to the file containing the model weights.
         """
         self.q_network.load_weights(name)
-    
+        self.target_network.load_weights(name)
+
     def save(self, name):
         """
         Saves the agent's model weights to a specified file.
@@ -190,3 +195,4 @@ class BaseAgent:
             Path where the model weights will be saved.
         """
         self.q_network.save_weights(name)
+        self.target_network.save_weights(name)

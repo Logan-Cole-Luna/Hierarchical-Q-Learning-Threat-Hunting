@@ -12,7 +12,7 @@ import seaborn as sns
 from sklearn.metrics import roc_curve, auc
 import numpy as np
 
-class Visuals:
+class Visualizer:
     """
     A class containing visualization methods for training and evaluating Q-Networks.
     """

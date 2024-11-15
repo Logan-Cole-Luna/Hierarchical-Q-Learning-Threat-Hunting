@@ -1,5 +1,5 @@
 """
-RewardCalculator.py
+reward_calculator.py
 
 Defines the `RewardCalculator` class for calculating rewards in a reinforcement learning environment
 based on high-level and low-level actions. The rewards are calculated based on the agent's
@@ -66,7 +66,7 @@ class RewardCalculator:
         """
         high_reward = 0.0
         low_reward = 0.0
-        
+
         # High-Level Reward Calculation
         if high_pred == high_true:
             if high_true == self.benign_id:
@@ -85,5 +85,5 @@ class RewardCalculator:
             # High-Level Incorrect Prediction
             high_reward = self.low_reward * (1 - high_confidence)
             low_reward = 0.0  # Do not penalize Low-Level network for high-level errors
-        
+
         return high_reward, low_reward

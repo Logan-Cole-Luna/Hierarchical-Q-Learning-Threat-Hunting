@@ -15,3 +15,8 @@
     looking for change?
 
 - Integrate attention into the Q Learning Model
+
+
+- Temporal Context with State History: Provide agents with a history of past states to capture temporal dependencies.
+- Hierarchical Agent Coordination with Shared Information: Enable high-level agents to influence low-level agents through shared goals or information.
+- Proper Deep Q-Learning Enhancements: Implement target networks and experience replay to stabilize and improve training.
