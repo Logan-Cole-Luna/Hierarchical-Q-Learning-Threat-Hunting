@@ -5,13 +5,25 @@
 - Larger data segment similar to how the subset is made in 
     preprocess where it evenly divides the data so its not all benign
 
+- Improve data preprocessing, have the values be better normalized & encoded
+
 - Improve reward function 
 
 - Implement proper Q learning algorithm
-
-- Improve data preprocessing, have the values be better normalized & encoded
+-- 1. Add Temporal Features and State History
+-- 2. Multi-Agent Coordination
+--- Introduce communication or coordination between agents.
+-- 3. Prioritized Experience Replay
+--- Implement Prioritized Experience Replay to sample important experiences more frequently.
+-- 4. Double Q-Learning
+--- Use Double Q-Learning to mitigate overestimation of Q-values:
+-- 5. Reward Shaping
+--- Use more nuanced reward functions to guide learning
+-- 6. Multi-Agent Reinforcement Learning (MARL)
+--- Transition to MARL, where both agents are trained jointly in a shared environment.
+--- Currently seperate
 
 - Improve training env, how should we set it up? Implement it so that the model is scaning multiple ports repeatedly 
     looking for change?
 
-- Integrate attention into the Q Learning Model
+- Integrate attention into the Q Learning Model?

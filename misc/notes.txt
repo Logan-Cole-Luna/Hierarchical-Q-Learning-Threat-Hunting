@@ -24,3 +24,10 @@ Dataset Info:
 	22.	Init_Win_bytes_forward / Init_Win_bytes_backward: Initial TCP window sizes in forward and backward directions.
 	23.	Active / Idle Times (Mean, Std, Max, Min): Times that indicate active and idle states of the flow, with statistics.
 	24.	Label: Classification of the flow (e.g., “BENIGN” indicates normal traffic, while other labels might represent different types of attacks).
+
+Helpful Material:
+	https://github.com/dennybritz/reinforcement-learning/tree/master/DQN
+	- Basic guide on Q Learning
+
+	https://github.com/keon/deep-q-learning
+	- Additional Guide
