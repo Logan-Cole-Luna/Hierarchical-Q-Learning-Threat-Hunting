@@ -1,83 +1,67 @@
-"""
-Trainer.py
+# utils/trainer.py
 
-Defines the `Trainer` class to manage the training process for high-level and low-level agents 
-in an intrusion detection environment. The `Trainer` class coordinates interactions between 
-agents and the environment over multiple episodes.
-
-Classes:
-    - Trainer: Orchestrates the training loop, manages agent actions, and updates for each episode.
-"""
-
-from utils.intrusion_detection_env import IntrusionDetectionEnv
-from agents.high_level_agent import HighLevelAgent
-from agents.low_level_agent import LowLevelAgent
-from utils.reward_calculator import RewardCalculator
+import torch
 import numpy as np
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,  # Change to DEBUG for detailed logs
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class Trainer:
-    def __init__(self, env, high_agent, low_agent, episodes=1000):
-        """
-        Initializes the Trainer with environment, agents, and training parameters.
-
-        Parameters:
-        -----------
-        env : IntrusionDetectionEnv
-            The environment where agents interact and receive rewards.
-        high_agent : HighLevelAgent
-            Agent responsible for high-level actions.
-        low_agent : LowLevelAgent
-            Agent responsible for low-level actions.
-        episodes : int, optional
-            Number of training episodes (default is 1000).
-        """
+    def __init__(self, env, agent):
         self.env = env
-        self.high_agent = high_agent
-        self.low_agent = low_agent
-        self.episodes = episodes
-    
-    def train(self):
-        """
-        Executes the training loop, iterating over episodes and updating agents' Q-networks.
-        """
-        for episode in range(1, self.episodes + 1):
-            # Reset environment and obtain initial state
-            state_high, state_low, high_label, low_label = self.env.reset()  # Updated to receive separate high and low labels
-            state_high = np.reshape(state_high, [1, self.high_agent.state_size])
-            state_low = np.reshape(state_low, [1, self.low_agent.state_size])
+        self.agent = agent
+
+    def train(self, num_episodes):
+        reward_history = []
+        loss_history = []
+
+        for episode in range(1, num_episodes + 1):
+            state_batch, labels = self.env.reset()  # Initial batch of states and labels
             done = False
-            total_reward_high = 0
-            total_reward_low = 0
-            
+            total_reward = 0
+            losses = []
+
+            logger.info(f"Starting Episode {episode}/{num_episodes}")
+
             while not done:
-                # Agents select actions based on current state
-                action_high = self.high_agent.act(state_high)
-                action_low = self.low_agent.act(state_low)
-                
-                # Environment step: execute actions and observe next state, rewards, and done flag
-                (next_state_high, next_state_low, next_high_label, next_low_label), (reward_high, reward_low), done = self.env.step(action_high, action_low)
-                
-                # Reshape next states for consistency
-                if not done:
-                    next_state_high = np.reshape(next_state_high, [1, self.high_agent.state_size])
-                    next_state_low = np.reshape(next_state_low, [1, self.low_agent.state_size])
-                
-                # Store experience in agents' replay buffers
-                self.high_agent.remember(state_high, action_high, reward_high, next_state_high, done)
-                self.low_agent.remember(state_low, action_low, reward_low, next_state_low, done)
-                
-                # Update current state for next iteration
-                state_high = next_state_high
-                state_low = next_state_low
-                
-                # Accumulate rewards for this episode
-                total_reward_high += reward_high
-                total_reward_low += reward_low
-            
-            # Train (replay) the agents on sampled experience batches after each episode
-            self.high_agent.replay()
-            self.low_agent.replay()
-            
-            # Display progress at regular intervals
-            if episode % 100 == 0 or episode == 1:
-                print(f"Episode {episode}/{self.episodes} - High Reward: {total_reward_high}, Low Reward: {total_reward_low}")
+                actions = []
+                for state in state_batch:
+                    action = self.agent.act(state)
+                    actions.append(action)
+                actions = np.array(actions)
+                logger.debug(f"Actions for current batch: {actions}")
+
+                try:
+                    next_state_batch, rewards, done, info = self.env.step(actions)
+                except ValueError as ve:
+                    logger.error(f"ValueError during step: {ve}")
+                    break
+
+                logger.debug(f"Received next_state_batch shape: {next_state_batch.shape}, rewards shape: {rewards.shape}, done: {done}")
+
+                # Iterate over each sample in the batch
+                for state, action, reward, next_state in zip(state_batch, actions, rewards, next_state_batch):
+                    loss = self.agent.learn(state, action, reward, next_state, done)
+                    if loss is not None:
+                        losses.append(loss)
+                    total_reward += reward
+
+                state_batch = next_state_batch
+
+            reward_history.append(total_reward)
+            if losses:
+                loss_history.append(np.mean(losses))
+
+            # Log progress every 10 episodes and the first episode
+            if episode % 10 == 0 or episode == 1:
+                avg_reward = np.mean(reward_history[-10:]) if episode >= 10 else np.mean(reward_history)
+                avg_loss = np.mean(loss_history[-10:]) if len(loss_history) >= 10 else (np.mean(loss_history) if loss_history else 0)
+                logger.info(f"Episode {episode}/{num_episodes} - Total Reward: {total_reward:.2f} - Average Reward (last 10): {avg_reward:.2f} - Average Loss: {avg_loss:.4f}")
+
+        logger.info("Training completed.")
+        return reward_history, loss_history

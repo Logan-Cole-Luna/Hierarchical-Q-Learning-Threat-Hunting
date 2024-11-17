@@ -1,79 +1,20 @@
-"""
-QNetwork.py
-
-Defines the QNetwork class, a neural network model for Q-learning. 
-This model estimates Q-values for given states, helping an agent choose optimal actions.
-
-Classes:
-    - QNetwork: Neural network for Q-value estimation in reinforcement learning.
-"""
+# utils/q_network.py
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
 
 class QNetwork(nn.Module):
-    def __init__(self, state_size, action_size, learning_rate=0.001):
-        """
-        Initializes the QNetwork with specified state and action sizes and learning rate.
-        """
+    def __init__(self, state_size, action_size, hidden_layers):
         super(QNetwork, self).__init__()
-        self.state_size = state_size
-        self.action_size = action_size
-        self.learning_rate = learning_rate
+        layers = []
+        input_size = state_size
+        for hidden_size in hidden_layers:
+            layers.append(nn.Linear(input_size, hidden_size))
+            layers.append(nn.ReLU())
+            input_size = hidden_size
+        layers.append(nn.Linear(input_size, action_size))
+        self.network = nn.Sequential(*layers)
 
-        # Define fully connected layers for the network
-        self.fc1 = nn.Linear(self.state_size, 128)  # First hidden layer
-        self.fc2 = nn.Linear(128, 128)              # Second hidden layer
-        self.fc3 = nn.Linear(128, self.action_size) # Output layer (Q-values for actions)
-        
-        # Optimizer for training the network
-        self.optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
-        
-        # Update the loss function to Mean Squared Error for Q-learning
-        self.loss_fn = nn.MSELoss()
-        
-        # Set device for computations (GPU if available)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.to(self.device)  # Move model to the chosen device
-    
     def forward(self, state):
-        """
-        Performs a forward pass through the network to compute Q-values for given state.
-        """
-        x = F.relu(self.fc1(state))  # Apply ReLU activation to first layer
-        x = F.relu(self.fc2(x))      # Apply ReLU activation to second layer
-        q_values = self.fc3(x)       # Output Q-values
-        return q_values
-    
-    def predict(self, state):
-        """
-        Predicts Q-values for a given state without updating model parameters.
-        """
-        self.eval()  # Set to evaluation mode
-        with torch.no_grad():  # Disable gradient computation for efficiency
-            state = torch.FloatTensor(state).to(self.device)
-            q_values = self.forward(state)
-        return q_values.cpu().numpy()  # Return as numpy array
-    
-    def train_on_batch(self, state, target):
-        """
-        Trains the network on a batch of states and target Q-values.
-        """
-        self.train()  # Set to training mode
-        state = torch.FloatTensor(state).to(self.device)
-        target = torch.FloatTensor(target).to(self.device)  # Targets as FloatTensor for MSELoss
-        
-        # Forward pass to get predictions
-        q_values = self.forward(state)
-        
-        # Calculate loss
-        loss = self.loss_fn(q_values, target)
-        
-        # Backpropagation and optimization step
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        
-        return loss.item()  # Return the scalar loss
+        return self.network(state)

@@ -1,192 +1,133 @@
-"""
-BaseAgent.py
+# agents/base_agent.py
 
-Defines the `ReplayBuffer` and `BaseAgent` classes for a reinforcement learning agent. 
-The `ReplayBuffer` handles storage and sampling of experience tuples for training, 
-while `BaseAgent` manages action selection, experience replay, and network training.
-
-Classes:
-    - ReplayBuffer: Stores agent's experiences for training.
-    - BaseAgent: Reinforcement learning agent with experience replay and Q-learning.
-"""
-
+import torch
+import torch.nn.functional as F
+from torch.optim import Adam
 import numpy as np
-import random
 from collections import deque
-from utils.q_network import QNetwork
+import random
+import logging
 
-class ReplayBuffer:
-    def __init__(self, capacity=2000):
-        """
-        Initializes the replay buffer to store experiences.
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,  # Change to DEBUG for detailed logs
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-        Parameters:
-        -----------
-        capacity : int, optional
-            Maximum number of experiences to store (default is 2000).
-        """
-        self.memory = deque(maxlen=capacity)
-    
-    def add(self, experience):
-        """
-        Adds a new experience to the buffer.
-
-        Parameters:
-        -----------
-        experience : tuple
-            A tuple of (state, action, reward, next_state, done).
-        """
-        self.memory.append(experience)
-    
-    def sample(self, batch_size):
-        """
-        Samples a random batch of experiences from the buffer.
-
-        Parameters:
-        -----------
-        batch_size : int
-            Number of experiences to sample.
-
-        Returns:
-        --------
-        list
-            List of randomly selected experiences.
-        """
-        return random.sample(self.memory, batch_size)
-    
-    def __len__(self):
-        """
-        Returns the current size of the replay buffer.
-        """
-        return len(self.memory)
-
-class BaseAgent:
-    def __init__(self, state_size, action_size, learning_rate=0.001, gamma=0.95,
-                 epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, batch_size=64):
-        """
-        Initializes the base agent with hyperparameters and Q-network.
-
-        Parameters:
-        -----------
-        state_size : int
-            Dimension of the state space.
-        action_size : int
-            Number of possible actions the agent can take.
-        learning_rate : float, optional
-            Learning rate for Q-network training (default is 0.001).
-        gamma : float, optional
-            Discount factor for future rewards (default is 0.95).
-        epsilon : float, optional
-            Initial exploration rate for epsilon-greedy policy (default is 1.0).
-        epsilon_min : float, optional
-            Minimum exploration rate (default is 0.01).
-        epsilon_decay : float, optional
-            Factor by which epsilon is reduced each episode (default is 0.995).
-        batch_size : int, optional
-            Number of experiences to sample during training (default is 64).
-        """
+class Agent:
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_layers,
+        learning_rate,
+        gamma,
+        epsilon_start,
+        epsilon_end,
+        epsilon_decay,
+        batch_size,
+        memory_size,
+        device
+    ):
         self.state_size = state_size
         self.action_size = action_size
+        self.hidden_layers = hidden_layers
+        self.learning_rate = learning_rate
         self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_min = epsilon_min
+        self.epsilon = epsilon_start
+        self.epsilon_min = epsilon_end
         self.epsilon_decay = epsilon_decay
         self.batch_size = batch_size
-        
-        # Initialize replay buffer and Q-network
-        self.memory = ReplayBuffer(capacity=2000)
-        self.q_network = QNetwork(state_size, action_size, learning_rate)
-    
-    def remember(self, state, action, reward, next_state, done):
-        """
-        Stores an experience tuple in the replay buffer.
+        self.memory = deque(maxlen=memory_size)
+        self.device = device
 
-        Parameters:
-        -----------
-        state : array-like
-            Current state.
-        action : int
-            Action taken by the agent.
-        reward : float
-            Reward received after taking the action.
-        next_state : array-like
-            Next state after the action.
-        done : bool
-            Flag indicating whether the episode ended.
-        """
-        self.memory.add((state, action, reward, next_state, done))
-    
+        # Initialize the Q-Network
+        self.qnetwork_local = QNetwork(state_size, action_size, hidden_layers).to(device)
+        self.qnetwork_target = QNetwork(state_size, action_size, hidden_layers).to(device)
+        self.optimizer = Adam(self.qnetwork_local.parameters(), lr=learning_rate)
+
+        # Initialize time step for updating target network
+        self.t_step = 0
+        self.target_update_freq = 1000  # Adjust as needed
+
     def act(self, state):
-        """
-        Chooses an action based on epsilon-greedy policy.
+        """Returns actions for given state as per current policy."""
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)  # Shape: [1,63]
+        self.qnetwork_local.eval()
+        with torch.no_grad():
+            action_values = self.qnetwork_local(state)  # Shape: [1, action_size]
+        self.qnetwork_local.train()
 
-        Parameters:
-        -----------
-        state : array-like
-            Current state to evaluate.
+        # Epsilon-greedy action selection
+        if np.random.rand() > self.epsilon:
+            action = torch.argmax(action_values).item()
+        else:
+            action = random.choice(np.arange(self.action_size))
+        
+        logger.debug(f"Action selected: {action} (Epsilon: {self.epsilon})")
+        return action
 
-        Returns:
-        --------
-        int
-            Chosen action.
-        """
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        q_values = self.q_network.predict(state)
-        return np.argmax(q_values[0])
-    
-    def replay(self):
-        """
-        Trains the agent using experiences from the replay buffer. 
-        Performs a Q-learning update using a minibatch of past experiences.
-        """
-        if len(self.memory) < self.batch_size:
-            return
-        
-        minibatch = self.memory.sample(self.batch_size)
-        states = []
-        targets = []
-        
-        # Compute target values for each experience in the minibatch
-        for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                # Add discounted maximum Q-value for the next state
-                target += self.gamma * np.amax(self.q_network.predict(next_state)[0])
-            
-            # Update the Q-value for the taken action
-            target_f = self.q_network.predict(state)
-            target_f[0][action] = target
-            states.append(state[0])
-            targets.append(target_f[0])
-        
-        # Convert to numpy arrays and perform a batch update on the Q-network
-        states = np.array(states)
-        targets = np.array(targets)
-        self.q_network.train_on_batch(states, targets)
-        
-        # Decay epsilon to reduce exploration over time
+    def learn(self, state, action, reward, next_state, done):
+        """Update value parameters using given experience tuple."""
+        # Convert to tensors
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)  # Shape: [1,63]
+        next_state = torch.from_numpy(next_state).float().unsqueeze(0).to(self.device)  # Shape: [1,63]
+        action = torch.tensor([[action]], dtype=torch.long).to(self.device)  # Shape: [1,1]
+        reward = torch.tensor([[reward]], dtype=torch.float).to(self.device)  # Shape: [1,1]
+        done = torch.tensor([[done]], dtype=torch.float).to(self.device)  # Shape: [1,1]
+
+        # Log shapes
+        logger.debug(f"Learn - state shape: {state.shape}, action shape: {action.shape}, reward shape: {reward.shape}, next_state shape: {next_state.shape}, done shape: {done.shape}")
+
+        # Get max predicted Q values (for next states) from target model
+        Q_targets_next = self.qnetwork_target(next_state).detach().max(1)[0].unsqueeze(1)  # Shape: [1,1]
+        logger.debug(f"Q_targets_next shape: {Q_targets_next.shape}")
+
+        # Compute Q targets for current states
+        Q_targets = reward + (self.gamma * Q_targets_next * (1 - done))  # Shape: [1,1]
+        logger.debug(f"Q_targets shape: {Q_targets.shape}")
+
+        # Get expected Q values from local model
+        Q_expected = self.qnetwork_local(state).gather(1, action)  # Shape: [1,1]
+        logger.debug(f"Q_expected shape: {Q_expected.shape}")
+
+        # Compute loss
+        loss = F.mse_loss(Q_expected, Q_targets)  # Shape: [1,1]
+        logger.debug(f"Loss: {loss.item()}")
+
+        # Minimize the loss
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # ------------------- update target network ------------------- #
+        self.t_step = (self.t_step + 1) % self.target_update_freq
+        if self.t_step == 0:
+            self.qnetwork_target.load_state_dict(self.qnetwork_local.state_dict())
+            logger.debug("Target network updated.")
+
+        # Decay epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
-    
-    def load(self, name):
-        """
-        Loads the agent's model weights from a specified file.
+            logger.debug(f"Epsilon decayed to: {self.epsilon}")
 
-        Parameters:
-        -----------
-        name : str
-            Path to the file containing the model weights.
-        """
-        self.q_network.load_weights(name)
-    
-    def save(self, name):
-        """
-        Saves the agent's model weights to a specified file.
+        return loss.item()
 
-        Parameters:
-        -----------
-        name : str
-            Path where the model weights will be saved.
-        """
-        self.q_network.save_weights(name)
+# Define the Q-Network architecture
+import torch.nn as nn
+
+class QNetwork(nn.Module):
+    def __init__(self, state_size, action_size, hidden_layers):
+        super(QNetwork, self).__init__()
+        layers = []
+        input_size = state_size
+        for hidden_size in hidden_layers:
+            layers.append(nn.Linear(input_size, hidden_size))
+            layers.append(nn.ReLU())
+            input_size = hidden_size
+        layers.append(nn.Linear(input_size, action_size))
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, state):
+        return self.network(state)

@@ -1,232 +1,106 @@
-# train.py
-
-"""
-Main script for setting up, training, evaluating, and overfit testing high-level and low-level agents
-in an intrusion detection environment. The script loads preprocessed data, initializes the environment 
-and agents, trains the agents on full data, tests for overfitting on a subset, saves their models, 
-and performs evaluation.
-
-Modules:
-    - main: Orchestrates the entire training, evaluation, and overfitting testing pipeline.
-
-Functions:
-    - set_seed: Sets random seeds for reproducibility.
-    - train_and_evaluate: Trains agents, performs evaluation, and saves models.
-    - test_for_overfit: Tests agents on subset data for overfitting.
-    - main: Calls training, overfitting test, and evaluation.
-"""
+# Train.py
 
 import os
-import sys
+import json
+import time
+import torch
 import numpy as np
-from utils.intrusion_detection_env import IntrusionDetectionEnv
-from agents.high_level_agent import HighLevelAgent
-from agents.low_level_agent import LowLevelAgent
-from utils.reward_calculator import RewardCalculator
+import pandas as pd
+from agents.base_agent import Agent
+from utils.intrusion_detection_env import NetworkClassificationEnv
 from utils.trainer import Trainer
-from scripts.evaluator import Evaluator
-from utils.q_network import QNetwork
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.preprocessing import label_binarize
+from utils.visualization import plot_training_metrics
+from utils.evaluation import evaluate_agent
 import logging
-from utils.visualizer import Visuals
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def set_seed(seed=42):
-    import torch
-    import random
-
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-
-def train_and_evaluate():
+def load_preprocessed_data():
     """
-    Function for setting up, training, and evaluating agents on full data.
+    Loads preprocessed training and testing data along with the label dictionary.
+    If the data does not exist, it returns None.
     """
-    # Load data and initialize mappings
-    mappings_dir = os.path.join('data', 'mappings')
-    category_to_id_path = os.path.join(mappings_dir, 'category_to_id.json')
-    anomaly_to_id_path = os.path.join(mappings_dir, 'anomaly_to_id.json')
+    train_path = "data/train_df.csv"
+    test_path = "data/test_df.csv"
+    label_dict_path = "data/mappings/label_dict.json"
     
-    if not os.path.exists(category_to_id_path) or not os.path.exists(anomaly_to_id_path):
-        print("Error: Mapping files not found. Please run preprocess.py first.")
-        sys.exit(1)
-    
-    # Load training and test data
-    data_dir = 'data'
-    X_high_train = np.load(os.path.join(data_dir, 'X_high_train.npy'))
-    X_low_train = np.load(os.path.join(data_dir, 'X_low_train.npy'))
-    y_high_train = np.load(os.path.join(data_dir, 'y_high_train.npy'))
-    y_low_train = np.load(os.path.join(data_dir, 'y_low_train.npy'))
-    X_high_test = np.load(os.path.join(data_dir, 'X_high_test.npy'))
-    X_low_test = np.load(os.path.join(data_dir, 'X_low_test.npy'))
-    y_high_test = np.load(os.path.join(data_dir, 'y_high_test.npy'))
-    y_low_test = np.load(os.path.join(data_dir, 'y_low_test.npy'))
-    
-    # Initialize environment
-    env = IntrusionDetectionEnv(
-        X_high=X_high_train,
-        X_low=X_low_train,
-        y_high=y_high_train,
-        y_low=y_low_train,
-        high_agent_action_space=None,
-        low_agent_action_space=None,
-        mappings_dir=mappings_dir
-    )
-    
-    # Define action space sizes
-    high_agent_action_space = len(env.category_to_id)
-    low_agent_action_space = len(env.anomaly_to_id)
-    env.high_agent_action_space = high_agent_action_space
-    env.low_agent_action_space = low_agent_action_space
-    
-    # Initialize agents
-    high_agent = HighLevelAgent(
-        state_size=X_high_train.shape[1],
-        action_size=high_agent_action_space,
-        learning_rate=0.001,
-        gamma=0.95,
-        epsilon=1.0,
-        epsilon_min=0.01,
-        epsilon_decay=0.995,
-        batch_size=64
-    )
-    
-    low_agent = LowLevelAgent(
-        state_size=X_low_train.shape[1],
-        action_size=low_agent_action_space,
-        learning_rate=0.001,
-        gamma=0.95,
-        epsilon=1.0,
-        epsilon_min=0.01,
-        epsilon_decay=0.995,
-        batch_size=64
-    )
-    
-    # Train agents
-    trainer = Trainer(
-        env=env,
-        high_agent=high_agent,
-        low_agent=low_agent,
-        episodes=1000
-    )
-    trainer.train()
-    
-    # Save models
-    high_agent.save('high_level_agent.h5')
-    low_agent.save('low_level_agent.h5')
-    print("Training completed and models saved.")
-    
-    # Evaluation
-    evaluator = Evaluator(
-        high_agent=high_agent,
-        low_agent=low_agent,
-        X_high_test=X_high_test,
-        X_low_test=X_low_test,
-        y_high_test=y_high_test,
-        y_low_test=y_low_test
-    )
-    evaluator.evaluate_agents()
-
-def test_for_overfit():
-    """
-    Function to test for overfitting on a subset of data and visualize results.
-    """
-    set_seed(42)
-
-    # Load subset data
-    X_high_subset = np.load('./data/subset/X_high_subset.npy')
-    X_low_subset = np.load('./data/subset/X_low_subset.npy')
-    y_high_subset = np.load('./data/subset/y_high_subset.npy')
-    y_low_subset = np.load('./data/subset/y_low_subset.npy')
-
-    # Initialize Q-Networks
-    state_size_high = X_high_subset.shape[1]
-    state_size_low = X_low_subset.shape[1]
-    high_action_size = len(np.unique(y_high_subset))
-    low_action_size = len(np.unique(y_low_subset))
-
-    q_network_high = QNetwork(state_size_high, high_action_size, learning_rate=0.001)
-    q_network_low = QNetwork(state_size_low, low_action_size, learning_rate=0.001)
-
-    # Train with early stopping
-    num_epochs = 1000
-    patience = 100
-    patience_counter = 0
-    best_loss_high = float('inf')
-    best_loss_low = float('inf')
-    loss_high_history = []
-    loss_low_history = []
-
-    logging.info("Starting overfit testing on subset data...")
-
-    for epoch in range(1, num_epochs + 1):
-        # One-hot encode targets to match the output shape of q_values
-        y_high_subset_one_hot = np.eye(high_action_size)[y_high_subset]
-        y_low_subset_one_hot = np.eye(low_action_size)[y_low_subset]
-
-        # Train with one-hot encoded targets
-        loss_high = q_network_high.train_on_batch(X_high_subset, y_high_subset_one_hot)
-        loss_low = q_network_low.train_on_batch(X_low_subset, y_low_subset_one_hot)
-
-
-        loss_high_history.append(loss_high)
-        loss_low_history.append(loss_low)
-
-        if loss_high < best_loss_high and loss_low < best_loss_low:
-            best_loss_high = loss_high
-            best_loss_low = loss_low
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        if patience_counter >= patience:
-            logging.info(f"No improvement in loss for {patience} epochs. Early stopping at epoch {epoch}.")
-            break
-
-    logging.info("Overfit testing completed.")
-
-    # Visualize training loss
-    Visuals.plot_loss(loss_high_history, loss_low_history)
-
-    # Evaluation
-    predictions_high = q_network_high.predict(X_high_subset)
-    predictions_low = q_network_low.predict(X_low_subset)
-    predicted_actions_high = np.argmax(predictions_high, axis=1)
-    predicted_actions_low = np.argmax(predictions_low, axis=1)
-
-    accuracy_high = np.mean(predicted_actions_high == y_high_subset)
-    accuracy_low = np.mean(predicted_actions_low == y_low_subset)
-    logging.info(f"High-Level Q-Network Accuracy on Subset: {accuracy_high * 100:.2f}%")
-    logging.info(f"Low-Level Q-Network Accuracy on Subset: {accuracy_low * 100:.2f}%")
-
-    target_names_high = [f"Class {label}" for label in np.unique(y_high_subset)]
-    target_names_low = [f"Class {label}" for label in np.unique(y_low_subset)]
-
-    print("\nClassification Report for High-Level Q-Network:")
-    print(classification_report(y_high_subset, predicted_actions_high, target_names=target_names_high, zero_division=0))
-    print("Classification Report for Low-Level Q-Network:")
-    print(classification_report(y_low_subset, predicted_actions_low, target_names=target_names_low, zero_division=0))
-
-    cm_high = confusion_matrix(y_high_subset, predicted_actions_high)
-    cm_low = confusion_matrix(y_low_subset, predicted_actions_low)
-    Visuals.plot_confusion_matrix(cm_high, 'Confusion Matrix - High-Level Q-Network', target_names_high, cmap='Blues')
-    Visuals.plot_confusion_matrix(cm_low, 'Confusion Matrix - Low-Level Q-Network', target_names_low, cmap='Greens')
-
-    y_high_binarized = label_binarize(y_high_subset, classes=np.unique(y_high_subset))
-    y_low_binarized = label_binarize(y_low_subset, classes=np.unique(y_low_subset))
-    Visuals.plot_roc_curves(predictions_high, y_high_binarized, np.unique(y_high_subset), 'ROC Curves - High-Level Q-Network')
-    Visuals.plot_roc_curves(predictions_low, y_low_binarized, np.unique(y_low_subset), 'ROC Curves - Low-Level Q-Network')
+    if os.path.exists(train_path) and os.path.exists(test_path) and os.path.exists(label_dict_path):
+        logger.info("Loading preprocessed data...")
+        train_df = pd.read_csv(train_path)
+        test_df = pd.read_csv(test_path)
+        with open(label_dict_path, "r") as infile:
+            label_dict = json.load(infile)
+        logger.info("Preprocessed data loaded successfully.")
+        return train_df, test_df, label_dict
+    else:
+        logger.warning("Preprocessed data not found.")
+        return None
 
 def main():
-    #train_and_evaluate()
-    test_for_overfit()
+    try:
+        # Set random seeds for reproducibility
+        torch.manual_seed(0)
+        np.random.seed(0)
+        
+        # Attempt to load preprocessed data
+        data = load_preprocessed_data()
+        
+        if data is None:
+            # If preprocessed data does not exist, run preprocess.py
+            from preprocess import preprocess_data
+            logger.info("Preprocessing data as preprocessed files were not found...")
+            train_df, test_df, feature_cols, label_dict = preprocess_data()
+        else:
+            train_df, test_df, label_dict = data
+            # Extract feature columns excluding label columns
+            feature_cols = [col for col in train_df.columns if col not in ['Label', 'Threat']]
+        
+        # Initialize environment and agent
+        logger.info("Initializing environment and agent...")
+        env = NetworkClassificationEnv(train_df, label_dict, batch_size=env_batch_size)
+        agent = Agent(
+            state_size=env.observation_space.shape[0],
+            action_size=env.action_space.n,
+            hidden_layers=[64, 32],
+            learning_rate=0.001,
+            gamma=0.99,
+            epsilon_start=1.0,
+            epsilon_end=0.01,
+            epsilon_decay=0.995,
+            batch_size=64,
+            memory_size=10000,
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        )
+        
+        trainer = Trainer(env, agent)
+        
+        num_episodes = 5
+        logger.info(f"Starting training for {num_episodes} episodes...")
+        
+        start_time = time.time()
+        reward_history, loss_history = trainer.train(num_episodes)
+        end_time = time.time()
+        
+        logger.info(f"Training completed in {(end_time - start_time)/60:.2f} minutes.")
+        
+        # Plot training metrics
+        plot_training_metrics(reward_history, loss_history, "results/training_metrics.png")
+        logger.info("Training metrics saved to results/training_metrics.png")
+        
+        # Save the trained model
+        os.makedirs("models", exist_ok=True)
+        model_path = "models/dqn_model.pth"
+        torch.save(agent.qnetwork_local.state_dict(), model_path)
+        logger.info(f"Model saved to {model_path}")
+        
+        # Evaluate the agent
+        evaluate_agent(agent, env, label_dict, save_confusion_matrix=True, save_path='results/confusion_matrix.png')
+        logger.info("Confusion matrix saved to results/confusion_matrix.png")
+    
+    except Exception as e:
+        logger.exception("An error occurred during training.")
 
 if __name__ == "__main__":
     main()

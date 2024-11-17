@@ -1,74 +1,33 @@
-"""
-replay_buffer.py
-
-Defines the `ReplayBuffer` class for storing and sampling experiences in reinforcement learning.
-The buffer is used to store transitions (state, action, reward, next_state, done) and allows 
-random sampling to facilitate experience replay for training agents.
-
-Classes:
-    - ReplayBuffer: Manages storage and retrieval of experience tuples for reinforcement learning.
-"""
+# utils/replay_buffer.py
 
 import random
 import numpy as np
-from collections import deque
+import torch
+from collections import deque, namedtuple
 
 class ReplayBuffer:
-    def __init__(self, capacity=10000):
-        """
-        Initializes the replay buffer with a specified capacity.
-
-        Parameters:
-        -----------
-        capacity : int, optional
-            Maximum number of experiences to store in the buffer (default is 10,000).
-        """
-        self.buffer = deque(maxlen=capacity)
+    def __init__(self, action_size, buffer_size, batch_size, seed=0):
+        self.action_size = action_size
+        self.memory = deque(maxlen=buffer_size)
+        self.batch_size = batch_size
+        self.experience = namedtuple("Experience",
+                                     field_names=["state", "action", "reward", "next_state", "done"])
+        random.seed(seed)
     
     def add(self, state, action, reward, next_state, done):
-        """
-        Adds a new experience to the replay buffer.
-
-        Parameters:
-        -----------
-        state : array-like
-            The current state observed by the agent.
-        action : int
-            The action taken by the agent.
-        reward : float
-            The reward received after taking the action.
-        next_state : array-like
-            The next state observed after taking the action.
-        done : bool
-            Flag indicating whether the episode has ended.
-        """
-        self.buffer.append((state, action, reward, next_state, done))
+        e = self.experience(state, action, reward, next_state, done)
+        self.memory.append(e)
     
-    def sample(self, batch_size):
-        """
-        Samples a random batch of experiences from the buffer.
-
-        Parameters:
-        -----------
-        batch_size : int
-            The number of experiences to sample.
-
-        Returns:
-        --------
-        tuple
-            Tuple containing arrays of states, actions, rewards, next_states, and done flags.
-        """
-        batch = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = map(np.array, zip(*batch))
-        return state, action, reward, next_state, done
+    def sample(self):
+        experiences = random.sample(self.memory, k=self.batch_size)
+        
+        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float()
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long()
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float()
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float()
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float()
+        
+        return (states, actions, rewards, next_states, dones)
     
     def __len__(self):
-        """
-        Returns the current size of the replay buffer.
-
-        Returns:
-        --------
-        int
-            Number of experiences currently stored in the buffer.
-        """
-        return len(self.buffer)
+        return len(self.memory)
