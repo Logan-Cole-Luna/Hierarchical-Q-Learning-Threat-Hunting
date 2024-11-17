@@ -18,15 +18,23 @@ def evaluate():
     warnings.filterwarnings("ignore", category=FutureWarning)
     
     # Load label dictionary
-    with open("data/mappings/label_dict.json", "r") as infile:
+    label_dict_path = "data/mappings/label_dict.json"
+    if not os.path.exists(label_dict_path):
+        raise FileNotFoundError(f"Label dictionary not found at {label_dict_path}")
+        
+    with open(label_dict_path, "r") as infile:
         label_dict = json.load(infile)
     label_names = list(label_dict.keys())
     
     # Load test data
-    test_df = pd.read_csv("data/test_df.csv")
+    test_data_path = "data/test_df.csv"
+    if not os.path.exists(test_data_path):
+        raise FileNotFoundError(f"Test data not found at {test_data_path}")
     
-    # Initialize environment with batch_size=1 for simplicity
-    env = NetworkClassificationEnv(test_df, label_dict, batch_size=1)
+    test_df = pd.read_csv(test_data_path)
+    
+    # Initialize environment with a reasonable batch size
+    env = NetworkClassificationEnv(test_df, label_dict, batch_size=64)
     
     # Initialize agent
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,11 +55,15 @@ def evaluate():
     )
     
     # Load trained model with weights_only=True if supported
+    model_path = "models/dqn_model.pth"
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Trained model not found at {model_path}")
+    
     try:
-        state_dict = torch.load("models/dqn_model.pth", map_location=device, weights_only=True)
+        state_dict = torch.load(model_path, map_location=device, weights_only=True)
     except TypeError:
         # If weights_only parameter is not supported, proceed without it
-        state_dict = torch.load("models/dqn_model.pth", map_location=device)
+        state_dict = torch.load(model_path, map_location=device)
     agent.qnetwork_local.load_state_dict(state_dict)
     agent.qnetwork_local.eval()
     
@@ -62,12 +74,13 @@ def evaluate():
     done = False
     
     while not done:
-        # Since batch_size=1, states and labels are single samples
-        actions = agent.act(states)  # actions is a list with one element
-        all_actions.extend(actions)  # Extend the list with the action(s)
-        all_labels.extend(labels)    # Extend the list with the label(s)
-        next_states, rewards, done, _ = env.step(actions)
-        states = next_states
+        actions = agent.act(states)  # actions should be a list
+        # Debugging: Verify the type and content of actions
+        print(f"actions: {actions}, type: {type(actions)}, length: {len(actions)}")
+        all_actions.extend(actions)
+        all_labels.extend(labels)
+        next_states, rewards, done, next_labels = env.step(actions)
+        states, labels = next_states, next_labels  # Correctly assign next_labels
     
     # Evaluation Metrics
     print("Generating classification report...")
@@ -88,22 +101,25 @@ def evaluate():
     plot_confusion_matrix(all_labels, all_actions, classes=label_names, save_path=cm_save_path, normalize=True, title='Normalized Confusion Matrix')
     print(f"Confusion matrix saved to {cm_save_path}")
     
-    # Save results to a DataFrame
-    outputs_df = pd.DataFrame(columns=["Estimated", "Correct", "Total", "Accuracy"])
+    # Save results to a list of dictionaries
+    rows = []
     unique_labels = np.unique(all_labels)
     for label in unique_labels:
         estimated = all_actions.count(label)
         correct = sum(1 for a, l in zip(all_actions, all_labels) if a == l and l == label)
         total = all_labels.count(label)
         acc = (correct / total) * 100 if total > 0 else 0
-        outputs_df = outputs_df.append({
+        rows.append({
             "Estimated": estimated,
             "Correct": correct,
             "Total": total,
             "Accuracy": acc
-        }, ignore_index=True)
+        })
     
-    outputs_df.index = label_names
+    # Create the DataFrame from the list of dictionaries with label_names as the index
+    outputs_df = pd.DataFrame(rows, index=label_names)
+    
+    # Save to CSV
     outputs_save_path = "results/evaluation_results.csv"
     outputs_df.to_csv(outputs_save_path)
     print(f"Evaluation results saved to {outputs_save_path}")

@@ -6,43 +6,76 @@ import numpy as np
 import pandas as pd
 
 class NetworkClassificationEnv(gym.Env):
-    def __init__(self, data_df, label_dict, batch_size=64):
+    def __init__(self, data_df, label_dict, batch_size=64, fails_episode=10):
         super(NetworkClassificationEnv, self).__init__()
         self.data_df = data_df.reset_index(drop=True)
         self.label_dict = label_dict
         self.batch_size = batch_size
+        self.fails_episode = fails_episode
         self.current_index = 0
         self.num_samples = len(self.data_df)
         
         # Define action and observation space
         self.action_space = spaces.Discrete(len(label_dict))
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(self.data_df.shape[1]-2,), dtype=np.float32
+            low=0.0, high=1.0, shape=(self.data_df.shape[1] - 2,), dtype=np.float32
         )
-        self.done = False
+        
+        self.counter = 0  # Counts the number of incorrect actions
 
     def reset(self):
         self.current_index = 0
-        self.done = False
+        self.counter = 0
         states, labels = self._get_batch()
+        self.labels = labels  # Initialize self.labels for the first batch
         return states, labels
-
-    def step(self, actions):
-        # Ensure actions and labels have the same length
-        rewards = self._compute_rewards(actions, self.data_df.iloc[self.current_index:self.current_index + self.batch_size]['Label'].map(self.label_dict).values)
-        self.current_index += self.batch_size
-        if self.current_index >= self.num_samples:
-            self.done = True
-        next_states, _ = self._get_batch()
-        return next_states, rewards, self.done, {}
-
+    
     def _get_batch(self):
         end_index = min(self.current_index + self.batch_size, self.num_samples)
         batch_df = self.data_df.iloc[self.current_index:end_index]
         states = batch_df.drop(['Label', 'Threat'], axis=1).values.astype(np.float32)
         labels = batch_df['Label'].map(self.label_dict).values
+        self.current_index = end_index
         return states, labels
-
+    
     def _compute_rewards(self, actions, labels):
+        """
+        Compute rewards based on the actions and true labels.
+        
+        Parameters:
+        - actions (list or np.ndarray): Predicted actions
+        - labels (np.ndarray): True labels
+        
+        Returns:
+        - rewards (np.ndarray): Array of rewards
+        """
+        actions = np.array(actions)
+        labels = np.array(labels)
+        if actions.shape != labels.shape:
+            raise ValueError(f"Shape mismatch: actions shape {actions.shape}, labels shape {labels.shape}")
         rewards = np.where(actions == labels, 1, -1)
+        self.counter += np.sum(actions != labels)
         return rewards
+    
+    def step(self, actions):
+        """
+        Execute actions and return the next states, rewards, done flag, and next labels.
+        
+        Parameters:
+        - actions (list or np.ndarray): Predicted actions for the current batch
+        
+        Returns:
+        - next_states (np.ndarray): Next batch of states
+        - rewards (np.ndarray): Rewards for the current actions
+        - done (bool): Whether the episode is done
+        - next_labels (np.ndarray): True labels for the next batch
+        """
+        rewards = self._compute_rewards(actions, self.labels)
+        next_states, next_labels = self._get_batch()
+        
+        done = False
+        if self.counter >= self.fails_episode or self.current_index >= self.num_samples:
+            done = True
+        
+        self.labels = next_labels  # Update labels for the next step
+        return next_states, rewards, done, next_labels  # Return next_labels instead of {}

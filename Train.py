@@ -9,9 +9,10 @@ import pandas as pd
 from agents.base_agent import Agent
 from utils.intrusion_detection_env import NetworkClassificationEnv
 from utils.trainer import Trainer
-from utils.visualization import plot_training_metrics
+from utils.visualizer import plot_training_metrics
 from utils.evaluation import evaluate_agent
 import logging
+from scripts.preprocess import preprocess_data
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -49,7 +50,6 @@ def main():
         
         if data is None:
             # If preprocessed data does not exist, run preprocess.py
-            from preprocess import preprocess_data
             logger.info("Preprocessing data as preprocessed files were not found...")
             train_df, test_df, feature_cols, label_dict = preprocess_data()
         else:
@@ -59,6 +59,7 @@ def main():
         
         # Initialize environment and agent
         logger.info("Initializing environment and agent...")
+        env_batch_size = 64  # Define env_batch_size before using it
         env = NetworkClassificationEnv(train_df, label_dict, batch_size=env_batch_size)
         agent = Agent(
             state_size=env.observation_space.shape[0],
@@ -76,7 +77,7 @@ def main():
         
         trainer = Trainer(env, agent)
         
-        num_episodes = 5
+        num_episodes = 300
         logger.info(f"Starting training for {num_episodes} episodes...")
         
         start_time = time.time()
@@ -86,7 +87,7 @@ def main():
         logger.info(f"Training completed in {(end_time - start_time)/60:.2f} minutes.")
         
         # Plot training metrics
-        plot_training_metrics(reward_history, loss_history, "results/training_metrics.png")
+        plot_training_metrics(reward_history, loss_history, os.path.join("results", "training_metrics.png"))
         logger.info("Training metrics saved to results/training_metrics.png")
         
         # Save the trained model
@@ -96,8 +97,18 @@ def main():
         logger.info(f"Model saved to {model_path}")
         
         # Evaluate the agent
-        evaluate_agent(agent, env, label_dict, save_confusion_matrix=True, save_path='results/confusion_matrix.png')
-        logger.info("Confusion matrix saved to results/confusion_matrix.png")
+        # Initialize a new environment for evaluation if needed
+        eval_env = NetworkClassificationEnv(test_df, label_dict, batch_size=64)
+        metrics = evaluate_agent(
+            agent=agent,
+            env=eval_env,
+            label_dict=label_dict,
+            test_df=test_df,
+            save_confusion_matrix=True,
+            save_roc_curves=True,
+            save_path='results'
+        )
+        logger.info("Evaluation completed.")
     
     except Exception as e:
         logger.exception("An error occurred during training.")
