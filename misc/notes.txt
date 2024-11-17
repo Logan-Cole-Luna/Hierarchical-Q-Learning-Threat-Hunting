@@ -24,3 +24,61 @@ Dataset Info:
 	22.	Init_Win_bytes_forward / Init_Win_bytes_backward: Initial TCP window sizes in forward and backward directions.
 	23.	Active / Idle Times (Mean, Std, Max, Min): Times that indicate active and idle states of the flow, with statistics.
 	24.	Label: Classification of the flow (e.g., “BENIGN” indicates normal traffic, while other labels might represent different types of attacks).
+
+
+
+
+Updates to code:
+	300 Epochs
+	Baseline:
+
+
+	Batch Normalization:
+	
+	
+
+	
+	DulingQNetwork(
+		(feature): Sequential(
+			(0): Linear(in_features=63, out_features=64, bias=True)
+			(1): ReLU()
+			(2): Linear(in_features=64, out_features=32, bias=True)
+			(3): ReLU()
+		)
+		(value_stream): Sequential(
+			(0): Linear(in_features=32, out_features=32, bias=True)
+			(1): ReLU()
+			(2): Linear(in_features=32, out_features=1, bias=True)
+		)
+		(advantage_stream): Sequential(
+			(0): Linear(in_features=32, out_features=32, bias=True)
+			(1): ReLU()
+			(2): Linear(in_features=32, out_features=7, bias=True)
+		)
+	)
+
+	Dueling Q:
+		Benign       0.75      0.30      0.43        10
+		Botnet       1.00      1.00      1.00        10
+		Brute-force       0.58      1.00      0.73        11
+		DDoS attack       1.00      1.00      1.00         5
+		DoS attack       0.89      0.62      0.73        13
+		Infilteration       0.33      0.33      0.33         6
+		Web attack       0.82      1.00      0.90         9
+
+			accuracy                           0.75        64
+			macro avg       0.77      0.75      0.73        64
+		weighted avg       0.78      0.75      0.73        64
+
+		2024-11-17 14:16:29,643 - INFO - Accuracy: 75.00%
+		2024-11-17 14:16:29,643 - INFO - F1 Score: 0.7329
+		2024-11-17 14:16:29,643 - INFO - Precision: 0.7779
+		2024-11-17 14:16:29,643 - INFO - Recall: 0.7500
+
+	
+	Dueling Q w/ batch:
+
+
+	
+
+

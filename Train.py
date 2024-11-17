@@ -74,6 +74,8 @@ def main():
             memory_size=10000,
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
+
+        print(agent.qnetwork_local)
         
         trainer = Trainer(env, agent)
         
