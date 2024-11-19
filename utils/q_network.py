@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-
+'''
 # Base w/ batch
 class QNetwork(nn.Module):
     """Neural Network for approximating Q-values with Batch Normalization."""
@@ -22,7 +22,7 @@ class QNetwork(nn.Module):
 
         for hidden_size in hidden_layers:
             layers.append(nn.Linear(input_size, hidden_size))
-            layers.append(nn.BatchNorm1d(hidden_size))  # Adding BatchNorm
+            #layers.append(nn.BatchNorm1d(hidden_size))  # Adding BatchNorm
             layers.append(nn.ReLU())
             input_size = hidden_size
 
@@ -33,6 +33,7 @@ class QNetwork(nn.Module):
     def forward(self, state):
         """Build a network that maps state -> action values."""
         return self.network(state)
+'''
 
 # Dueling  Q w/ batch
 class QNetwork(nn.Module):

@@ -31,10 +31,45 @@ Dataset Info:
 Updates to code:
 	300 Epochs
 	Baseline:
+		2024-11-17 16:26:15,132 - INFO - Classification Report:
+				precision    recall  f1-score   support
 
+		Benign       0.75      0.30      0.43        10
+		Botnet       0.83      1.00      0.91        10
+		Brute-force       0.69      1.00      0.81        11
+		DDoS attack       0.83      1.00      0.91         5
+		DoS attack       1.00      0.62      0.76        13
+		Infilteration       0.20      0.17      0.18         6
+		Web attack       0.69      1.00      0.82         9
+
+			accuracy                           0.73        64
+			macro avg       0.71      0.73      0.69        64
+		weighted avg       0.75      0.73      0.71        64
+
+		2024-11-17 16:26:15,147 - INFO - Accuracy: 73.44%
+		2024-11-17 16:26:15,148 - INFO - F1 Score: 0.7069
+		2024-11-17 16:26:15,148 - INFO - Precision: 0.7499
+		2024-11-17 16:26:15,148 - INFO - Recall: 0.7344
 
 	Batch Normalization:
-	
+	               precision    recall  f1-score   support
+
+		Benign       0.67      0.40      0.50        10
+		Botnet       1.00      1.00      1.00        10
+		Brute-force       0.61      1.00      0.76        11
+		DDoS attack       0.71      1.00      0.83         5
+		DoS attack       1.00      0.62      0.76        13
+		Infilteration       0.00      0.00      0.00         6
+		Web attack       0.75      1.00      0.86         9
+
+			accuracy                           0.73        64
+			macro avg       0.68      0.72      0.67        64
+		weighted avg       0.73      0.73      0.71        64
+
+		2024-11-17 16:14:13,772 - INFO - Accuracy: 73.44%
+		2024-11-17 16:14:13,772 - INFO - F1 Score: 0.7052
+		2024-11-17 16:14:13,772 - INFO - Precision: 0.7298
+		2024-11-17 16:14:13,772 - INFO - Recall: 0.7344	
 	
 
 	
@@ -77,7 +112,24 @@ Updates to code:
 
 	
 	Dueling Q w/ batch:
+		2024-11-17 16:51:18,962 - INFO - Classification Report:
+					precision    recall  f1-score   support
+		Benign       0.80      0.40      0.53        10
+		Botnet       1.00      1.00      1.00        10
+		Brute-force       0.61      1.00      0.76        11
+		DDoS attack       1.00      1.00      1.00         5
+		DoS attack       1.00      0.62      0.76        13
+		Infilteration       0.50      0.50      0.50         6
+		Web attack       0.75      1.00      0.86         9
 
+		accuracy                           0.78        64
+		macro avg       0.81      0.79      0.77        64
+		weighted avg       0.82      0.78      0.77        64
+
+		2024-11-17 16:51:18,972 - INFO - Accuracy: 78.12%
+		2024-11-17 16:51:18,972 - INFO - F1 Score: 0.7703
+		2024-11-17 16:51:18,973 - INFO - Precision: 0.8199
+		2024-11-17 16:51:18,973 - INFO - Recall: 0.7812
 
 	
 
