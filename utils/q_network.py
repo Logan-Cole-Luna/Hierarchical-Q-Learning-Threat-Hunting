@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-
+'''
 # Base w/ batch
 class QNetwork(nn.Module):
     """Neural Network for approximating Q-values with Batch Normalization."""
@@ -22,7 +22,7 @@ class QNetwork(nn.Module):
 
         for hidden_size in hidden_layers:
             layers.append(nn.Linear(input_size, hidden_size))
-            layers.append(nn.BatchNorm1d(hidden_size))  # Adding BatchNorm
+            #layers.append(nn.BatchNorm1d(hidden_size))  # Adding BatchNorm
             layers.append(nn.ReLU())
             input_size = hidden_size
 
@@ -34,6 +34,7 @@ class QNetwork(nn.Module):
         """Build a network that maps state -> action values."""
         return self.network(state)
 '''
+
 # Dueling  Q w/ batch
 class QNetwork(nn.Module):
     """Dueling Q-Network Architecture with Batch Normalization."""
@@ -49,8 +50,7 @@ class QNetwork(nn.Module):
             nn.ReLU()
         )
         
-        # Value stream, Estimates the state-value function (V(s)) 
-        # for a given state s.
+        # Value stream
         self.value_stream = nn.Sequential(
             nn.Linear(hidden_layers[1], 32),
             #nn.BatchNorm1d(32),
@@ -58,8 +58,7 @@ class QNetwork(nn.Module):
             nn.Linear(32, 1)
         )
         
-        # Advantage stream,  Estimates the state-dependent 
-        # action advantage function (A(s, a)) for each action a in the state s.
+        # Advantage stream
         self.advantage_stream = nn.Sequential(
             nn.Linear(hidden_layers[1], 32),
             #nn.BatchNorm1d(32),
@@ -73,4 +72,3 @@ class QNetwork(nn.Module):
         advantage = self.advantage_stream(x)
         q_values = value + (advantage - advantage.mean())
         return q_values
-'''
