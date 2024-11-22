@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import os
 import json
+import argparse
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils import class_weight
 from sklearn.model_selection import train_test_split
@@ -12,7 +13,20 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-def preprocess_data():
+def preprocess_data(subset=False, samples_per_class=100):
+    """
+    Preprocesses the network intrusion detection data.
+
+    Parameters:
+    - subset (bool): If True, creates a subset of the data with an even distribution of classes.
+    - samples_per_class (int): Number of samples per class in the subset.
+
+    Returns:
+    - train_df (pd.DataFrame): Training dataframe.
+    - test_df (pd.DataFrame): Testing dataframe.
+    - feature_cols (list): List of feature column names.
+    - label_dict (dict): Dictionary mapping labels to integers.
+    """
     # Define the directory containing the CSV files
     data_dir = "data/"
     csv_files = [
@@ -82,6 +96,13 @@ def preprocess_data():
     print("Balancing data...")
     df_all = balance_data(df_all)
     
+    # If subset flag is True, create a subset with even class distribution
+    if subset:
+        print(f"Creating a subset with {samples_per_class} samples per class...")
+        df_all = create_subset(df_all, samples_per_class)
+        print(f"Subset DataFrame shape: {df_all.shape}")
+        print("Subset label distribution:\n", df_all['Label'].value_counts())
+    
     # Drop constant and duplicate columns
     print("Dropping constant and duplicate columns...")
     df_all = drop_constant_duplicate_columns(df_all)
@@ -131,6 +152,17 @@ def preprocess_data():
     os.makedirs("data", exist_ok=True)
     train_df.to_csv("data/train_df.csv", index=False)
     test_df.to_csv("data/test_df.csv", index=False)
+    
+    # Create and handle subset if requested
+    if subset:
+        print(f"Creating subset files with {samples_per_class} samples per class...")
+        train_df_subset = create_subset(train_df, samples_per_class)
+        test_df_subset = create_subset(test_df, samples_per_class)
+        
+        # Save subset files
+        train_df_subset.to_csv("data/train_df_subset.csv", index=False)
+        test_df_subset.to_csv("data/test_df_subset.csv", index=False)
+        print(f"Subset files created - Train shape: {train_df_subset.shape}, Test shape: {test_df_subset.shape}")
     
     # Create and save label dictionary
     print("Creating label dictionary...")
@@ -229,6 +261,32 @@ def balance_data(df):
     
     return df_balanced
 
+def create_subset(df, samples_per_class):
+    """
+    Creates a subset of the dataframe with an even distribution of classes.
+
+    Parameters:
+    - df (pd.DataFrame): The balanced dataframe.
+    - samples_per_class (int): Number of samples per class.
+
+    Returns:
+    - subset_df (pd.DataFrame): Subset dataframe.
+    """
+    classes = df['Label'].unique()
+    subset_list = []
+    
+    for cls in classes:
+        cls_df = df[df['Label'] == cls]
+        if len(cls_df) >= samples_per_class:
+            sampled_df = cls_df.sample(n=samples_per_class, random_state=42)
+        else:
+            sampled_df = cls_df  # If not enough samples, take all
+            print(f"Warning: Not enough samples for class '{cls}'. Expected {samples_per_class}, got {len(cls_df)}.")
+        subset_list.append(sampled_df)
+    
+    subset_df = pd.concat(subset_list, axis=0).reset_index(drop=True)
+    return subset_df
+
 def drop_constant_duplicate_columns(df):
     print("Dropping constant columns...")
     # Drop constant columns
@@ -259,4 +317,10 @@ def drop_constant_duplicate_columns(df):
     return df
 
 if __name__ == "__main__":
-    preprocess_data()
+    parser = argparse.ArgumentParser(description="Preprocess network intrusion detection data.")
+    parser.add_argument('--subset', action='store_true', help='Create a subset of the data with even class distribution.')
+    parser.add_argument('--samples_per_class', type=int, default=100, help='Number of samples per class in the subset.')
+    
+    args = parser.parse_args()
+    
+    preprocess_data(subset=args.subset, samples_per_class=args.samples_per_class)

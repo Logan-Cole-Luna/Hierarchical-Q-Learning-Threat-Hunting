@@ -33,7 +33,7 @@ class QNetwork(nn.Module):
     def forward(self, state):
         """Build a network that maps state -> action values."""
         return self.network(state)
-
+'''
 # Dueling  Q w/ batch
 class QNetwork(nn.Module):
     """Dueling Q-Network Architecture with Batch Normalization."""
@@ -49,7 +49,8 @@ class QNetwork(nn.Module):
             nn.ReLU()
         )
         
-        # Value stream
+        # Value stream, Estimates the state-value function (V(s)) 
+        # for a given state s.
         self.value_stream = nn.Sequential(
             nn.Linear(hidden_layers[1], 32),
             #nn.BatchNorm1d(32),
@@ -57,7 +58,8 @@ class QNetwork(nn.Module):
             nn.Linear(32, 1)
         )
         
-        # Advantage stream
+        # Advantage stream,  Estimates the state-dependent 
+        # action advantage function (A(s, a)) for each action a in the state s.
         self.advantage_stream = nn.Sequential(
             nn.Linear(hidden_layers[1], 32),
             #nn.BatchNorm1d(32),
@@ -71,3 +73,4 @@ class QNetwork(nn.Module):
         advantage = self.advantage_stream(x)
         q_values = value + (advantage - advantage.mean())
         return q_values
+'''
