@@ -1,1 +1,1 @@
-{"Benign": 0, "Botnet": 1, "Brute-force": 2, "DDoS attack": 3, "DoS attack": 4, "Infilteration": 5, "Web attack": 6}
+{"Benign": "Benign", "Botnet": "Botnet", "Brute-force": "Brute-force", "DDoS attack": "DDoS attack", "DoS attack": "DoS attack", "Infilteration": "Infilteration", "Web attack": "Web attack"}
