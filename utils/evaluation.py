@@ -8,6 +8,9 @@ from sklearn.metrics import classification_report, accuracy_score, f1_score, pre
 from sklearn.preprocessing import label_binarize
 from utils.visualizer import plot_confusion_matrix, plot_roc_curves
 import logging
+import time
+from scipy.stats import entropy
+import shap
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,7 @@ def evaluate_agent(agent, env, label_dict, test_df=None, save_confusion_matrix=T
     Returns:
     - metrics (dict): Dictionary containing evaluation metrics.
     """
+    start_time = time.time()
     # Ensure save_path exists
     os.makedirs(save_path, exist_ok=True)
 
@@ -46,15 +50,34 @@ def evaluate_agent(agent, env, label_dict, test_df=None, save_confusion_matrix=T
     logger.info("Starting agent evaluation...")
 
     try:
+        episode_metrics = []
+        prediction_uncertainties = []
+        eval_losses = []
+        
         states, labels = env.reset()
         done = False
+        episode_reward = 0
 
         while not done:
-            # Get actions from the agent
-            actions = agent.act(states)  # Should return a list of actions
-            all_actions.extend(actions)
-            all_labels.extend(labels)
-
+            # Get actions and Q-values from the agent
+            actions, q_values = agent.act(states, return_q_values=True)
+            
+            # Calculate prediction uncertainty using entropy
+            uncertainties = np.array([entropy(q_dist) for q_dist in q_values])
+            prediction_uncertainties.extend(uncertainties)
+            
+            # Calculate loss for monitoring
+            loss = agent.compute_loss(states, actions, labels)
+            eval_losses.append(loss.item())
+            
+            # Store episode-level metrics
+            episode_metrics.append({
+                'actions': actions,
+                'rewards': rewards,
+                'q_values': q_values,
+                'uncertainty': uncertainties
+            })
+            
             # Take a step in the environment
             next_states, rewards, done, next_labels = env.step(actions)
             states, labels = next_states, next_labels
@@ -120,6 +143,11 @@ def evaluate_agent(agent, env, label_dict, test_df=None, save_confusion_matrix=T
     metrics_df.to_csv(metrics_save_path)
     logger.info(f"Evaluation metrics saved to {metrics_save_path}")
 
+    # Add SHAP values for interpretability
+    background = states[:100]  # Sample background data
+    explainer = shap.DeepExplainer(agent.qnetwork_local, background)
+    shap_values = explainer.shap_values(states)
+    
     # Reset agent to training mode if needed
     agent.qnetwork_local.train()
 
@@ -131,7 +159,12 @@ def evaluate_agent(agent, env, label_dict, test_df=None, save_confusion_matrix=T
         "precision": precision,
         "recall": recall,
         "confusion_matrix": cm,
-        "roc_auc": roc_auc
+        "roc_auc": roc_auc,
+        "eval_time": time.time() - start_time,
+        "mean_uncertainty": np.mean(prediction_uncertainties),
+        "mean_eval_loss": np.mean(eval_losses),
+        "episode_metrics": episode_metrics,
+        "shap_values": shap_values
     }
 
     return metrics

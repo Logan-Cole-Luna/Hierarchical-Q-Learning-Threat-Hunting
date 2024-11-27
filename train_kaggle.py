@@ -15,20 +15,51 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import os
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Input
-from tensorflow.keras import optimizers
-import tensorflow.keras.backend as K
-import logging.config
 from gym import  spaces
 import gym
 import json
 import sys
 import time
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import psutil
+import platform
+import torch.cuda as cuda
+import cpuinfo
+
+# Add system info printing
+def print_system_info():
+    print("\n=== System Information ===")
+    print(f"Platform: {platform.platform()}")
+    print(f"Processor: {cpuinfo.get_cpu_info()['brand_raw']}")
+    print(f"RAM: {psutil.virtual_memory().total / (1024.0 ** 3):.1f} GB")
+    print(f"Python Version: {platform.python_version()}")
+    print(f"PyTorch Version: {torch.__version__}")
+    
+    # GPU information
+    print("\n=== GPU Information ===")
+    if torch.cuda.is_available():
+        print(f"GPU Available: Yes")
+        print(f"GPU Device: {torch.cuda.get_device_name(0)}")
+        print(f"GPU Count: {torch.cuda.device_count()}")
+        print(f"CUDA Version: {torch.version.cuda}")
+    else:
+        print("GPU Available: No")
+    
+    print("\n=== Current Device ===")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    print("=====================\n")
+
+# Call system info print function before main execution
+print_system_info()
+
 use_subset = True  # Set to False to use the full dataset
+suffix = "_subset.csv" if use_subset else ".csv"
 if use_subset:
     train_df = pd.read_csv("processed_data/train_df_subset.csv")
-    test_df = pd.read_csv("processed_data/train_df_subset.csv")
+    test_df = train_df  # Use the same data for testing
 else:
     train_df = pd.read_csv("processed_data/train_df.csv")
     test_df = pd.read_csv("processed_data/test_df.csv")
@@ -40,12 +71,10 @@ with open('processed_data/label_dict.json', 'r') as f:
 class data_cls:
     def __init__(self, train_test, attack_map, **kwargs):
         self.train_test = train_test
-        
-        if self.train_test == 'train':
-            self.train_path = "train_df.csv"
+        if use_subset and self.train_test == 'test':
+            self.path = "processed_data/train_df_subset.csv"
         else:
-            self.test_path = "test_df.csv"
-
+            self.path = f"processed_data/{self.train_test}_df.csv"
         self.attack_map =   attack_map 
         self.attack_types = list(attack_map.keys())
         
@@ -94,10 +123,7 @@ class data_cls:
         return self.data_shape
     
     def _load_df(self):
-        if self.train_test == 'train':
-            self.df = pd.read_csv(self.train_path) 
-        else:
-            self.df = pd.read_csv(self.test_path)
+        self.df = pd.read_csv(self.path)
             
         self.index=np.random.randint(0,self.df.shape[0]-1,dtype=np.int32)
         self.loaded = True
@@ -144,79 +170,27 @@ class NetworkClassificationEnv(gym.Env, data_cls):
             self.done = False
             
         return self.states, self.reward, self.done
-    
-import tensorflow as tf
 
-def huber_loss(y_true, y_pred, clip_value=1.0):
-    error = y_true - y_pred
-    is_small_error = tf.abs(error) < clip_value
-    squared_loss = 0.5 * tf.square(error)
-    linear_loss = clip_value * (tf.abs(error) - 0.5 * clip_value)
-    return tf.where(is_small_error, squared_loss, linear_loss)
-
-import keras.losses
-keras.losses.huber_loss = huber_loss
-class QNetwork():
-    def __init__(self,obs_size,num_actions, hidden_dense_layer_dict = {"Dense_1": {"Size": 100}}, learning_rate=0.001):
-        self.model = Sequential()
-        
-        self.model.add(Input(shape=(obs_size,)))
-
+# Modify the QNetwork class to use PyTorch
+class QNetwork(nn.Module):
+    def __init__(self, obs_size, num_actions, hidden_dense_layer_dict={"Dense_1": {"Size": 100}}, learning_rate=0.001):
+        super(QNetwork, self).__init__()
+        layers = []
+        input_size = obs_size
         for key, value in hidden_dense_layer_dict.items():
-            self.model.add(Dense(value["Size"], activation='relu', name=key))
-
-        self.model.add(Dense(num_actions))
-        
-        optimizer = optimizers.Adam(learning_rate)
-        self.model.compile(loss=huber_loss,optimizer=optimizer)
-
-    def predict(self,state,batch_size=1):
-        return self.model.predict(state,batch_size=batch_size, verbose=0)
-
-    def update(self, states, q):
-        loss = self.model.train_on_batch(states, q, class_weight=class_weights)
-        return loss
-
-class Policy:
-    def __init__(self, num_actions, estimator):
-        self.num_actions = num_actions
-        self.estimator = estimator
+            layers.append(nn.Linear(input_size, value["Size"]))
+            layers.append(nn.ReLU())
+            input_size = value["Size"]
+        layers.append(nn.Linear(input_size, num_actions))
+        self.model = nn.Sequential(*layers)
+        self.learning_rate = learning_rate
     
-class Epsilon_greedy(Policy):
-    def __init__(self,estimator ,num_actions,epsilon,decay_rate, epoch_length):
-        Policy.__init__(self, num_actions, estimator)
-        self.name = "Epsilon Greedy"
-        if (epsilon is None or epsilon < 0 or epsilon > 1):
-            print("EpsilonGreedy: Invalid value of epsilon", flush = True)
-            sys.exit(0)
-        self.epsilon = epsilon
-        self.step_counter = 0
-        self.epoch_length = epoch_length
-        self.decay_rate = decay_rate
-        self.epsilon_decay = True
-        
-    def get_actions(self,states):
-        if np.random.rand() <= self.epsilon:
-            actions = np.random.randint(0, self.num_actions,states.shape[0])
-        else:
-            self.Q = self.estimator.predict(states,states.shape[0])
+    def forward(self, x):
+        return self.model(x)
 
-            actions = []
-            for row in range(self.Q.shape[0]):
-                best_actions = np.argwhere(self.Q[row] == np.amax(self.Q[row]))
-                actions.append(best_actions[np.random.choice(len(best_actions))].item())
-            
-        self.step_counter += 1 
-
-        if self.epsilon_decay:
-            if self.step_counter % self.epoch_length == 0:
-                self.epsilon = max(.01, self.epsilon * self.decay_rate**self.step_counter)
-            
-        return actions
-
-class Agent(object):   
+# Update the Agent class to use PyTorch optimizers and loss functions
+class Agent(object):
     def __init__(self, actions, obs_size, policy="EpsilonGreedy", **kwargs):
-        
         self.actions = actions
         self.num_actions = len(actions)
         self.obs_size = obs_size
@@ -234,16 +208,22 @@ class Agent(object):
         self.ddqn_time = 100
         self.ddqn_update = self.ddqn_time
 
-        self.model_network = QNetwork(self.obs_size, 
-                                      self.num_actions,
-                                      kwargs.get('hidden_dense_layer_dict', {"Dense_1": {"Size": 100}}),
-                                      kwargs.get('learning_rate', 0.001))
+        self.model_network = QNetwork(
+            self.obs_size, 
+            self.num_actions,
+            hidden_dense_layer_dict=kwargs.get('hidden_dense_layer_dict', {"Dense_1": {"Size": 100}})
+        )
         
-        self.target_model_network = QNetwork(self.obs_size, self.num_actions,
-                                             kwargs.get('hidden_dense_layer_dict', {"Dense_1": {"Size": 100}}),
-                                             kwargs.get('learning_rate', 0.001))
+        self.target_model_network = QNetwork(
+            self.obs_size, 
+            self.num_actions,
+            hidden_dense_layer_dict=kwargs.get('hidden_dense_layer_dict', {"Dense_1": {"Size": 100}})
+        )
         
-        self.target_model_network.model.set_weights(self.model_network.model.get_weights()) 
+        self.optimizer = optim.Adam(self.model_network.parameters(), lr=kwargs.get('learning_rate', 0.001))
+        self.criterion = nn.SmoothL1Loss()  # Huber loss
+        # Copy weights from the model network to the target network
+        self.target_model_network.load_state_dict(self.model_network.state_dict())
         
         if policy == "EpsilonGreedy":
             self.policy = Epsilon_greedy(self.model_network,
@@ -277,30 +257,84 @@ class Agent(object):
             actions = self.actions
             done = self.done
             
-        next_actions = []
-        Q_prime = self.model_network.predict(next_states,self.minibatch_size)
-
-        for row in range(Q_prime.shape[0]):
-            best_next_actions = np.argwhere(Q_prime[row] == np.amax(Q_prime[row]))
-            next_actions.append(best_next_actions[np.random.choice(len(best_next_actions))].item())
-        sx = np.arange(len(next_actions))
-
-        Q = self.target_model_network.predict(states,self.minibatch_size)
-
-        targets = rewards.reshape(Q[sx,actions].shape) + \
-                  self.gamma * Q_prime[sx,next_actions] * \
-                  (1-done.reshape(Q[sx,actions].shape))   
-        Q[sx,actions] = targets  
+        # Convert everything to PyTorch tensors
+        states = torch.FloatTensor(states)
+        next_states = torch.FloatTensor(next_states)
+        rewards = torch.FloatTensor(rewards)
+        done = torch.FloatTensor(done)
+        actions = torch.LongTensor(actions)
+            
+        # Get Q values for next states
+        next_Q = self.model_network(next_states)
         
-        loss = self.model_network.model.train_on_batch(states,Q)
+        # Find best actions for next states
+        next_actions = torch.argmax(next_Q, dim=1)
+        
+        # Get current Q values
+        current_Q = self.target_model_network(states)
+        
+        # Create target Q values
+        targets = current_Q.clone()
+        for i in range(len(actions)):
+            targets[i, actions[i]] = rewards[i] + \
+                                   self.gamma * next_Q[i, next_actions[i]] * \
+                                   (1 - done[i])
+        
+        # Calculate loss and update
+        loss = self.criterion(current_Q, targets.detach())
+        
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         
         self.ddqn_update -= 1
         if self.ddqn_update == 0:
             self.ddqn_update = self.ddqn_time
-            self.target_model_network.model.set_weights(self.model_network.model.get_weights()) 
+            self.target_model_network.load_state_dict(self.model_network.state_dict()) 
         
-        return loss    
+        return loss.item()
+
+class Policy:
+    def __init__(self, num_actions, estimator):
+        self.num_actions = num_actions
+        self.estimator = estimator
     
+class Epsilon_greedy(Policy):
+    def __init__(self,estimator ,num_actions,epsilon,decay_rate, epoch_length):
+        Policy.__init__(self, num_actions, estimator)
+        self.name = "Epsilon Greedy"
+        if (epsilon is None or epsilon < 0 or epsilon > 1):
+            print("EpsilonGreedy: Invalid value of epsilon", flush = True)
+            sys.exit(0)
+        self.epsilon = epsilon
+        self.step_counter = 0
+        self.epoch_length = epoch_length
+        self.decay_rate = decay_rate
+        self.epsilon_decay = True
+        
+    def get_actions(self,states):
+        if np.random.rand() <= self.epsilon:
+            actions = np.random.randint(0, self.num_actions,states.shape[0])
+        else:
+            # Convert numpy array to PyTorch tensor
+            states_tensor = torch.FloatTensor(states)
+            self.Q = self.estimator(states_tensor)
+            # Convert back to numpy for processing
+            self.Q = self.Q.detach().numpy()
+
+            actions = []
+            for row in range(self.Q.shape[0]):
+                best_actions = np.argwhere(self.Q[row] == np.amax(self.Q[row]))
+                actions.append(best_actions[np.random.choice(len(best_actions))].item())
+            
+        self.step_counter += 1 
+
+        if self.epsilon_decay:
+            if self.step_counter % self.epoch_length == 0:
+                self.epsilon = max(.01, self.epsilon * self.decay_rate**self.step_counter)
+            
+        return actions
+
         
 class ReplayMemory(object):
     def __init__(self, observation_size, max_size):
@@ -350,7 +384,7 @@ batch_size = 1
 minibatch_size = 100
 exp_rep = True
 
-iterations_episode = 100
+iterations_episode = 100  # Changed back from 10 to 100
 
 decay_rate = 0.99
 gamma = 0.001
@@ -367,7 +401,7 @@ env = NetworkClassificationEnv('train',
                                 iterations_episode = iterations_episode)
 
 # num_episodes = int(env.data_shape[0]/(iterations_episode)/10)
-num_episodes = 10
+num_episodes = 300
 valid_actions = list(range(len(env.attack_types)))
 num_actions = len(valid_actions)
 
@@ -390,8 +424,6 @@ agent = Agent(valid_actions,
 # Statistics
 reward_chain = []
 loss_chain = []
-
-import tensorflow as tf
 
 # Main loop
 for epoch in range(num_episodes):
@@ -431,18 +463,16 @@ for epoch in range(num_episodes):
 
 
     end_time = time.time()
-    print("\r|Epoch {:03d}/{:03d} | Loss {:4.4f} |" 
-            "Tot reward in ep {:03d}| time: {:2.2f}|"
-            .format(epoch, num_episodes 
-            ,loss, total_reward_by_episode,(end_time-start_time)))
-    print("\r|Estimated: {}|Labels: {}".format(estimated_labels,true_labels))
+    if epoch % 10 == 0 or epoch == num_episodes - 1:
+        print("\r|Epoch {:03d}/{:03d} | Loss {:4.4f} |" 
+              "Tot reward in ep {:03d}| time: {:2.2f}|"
+              .format(epoch, num_episodes 
+              ,loss, total_reward_by_episode,(end_time-start_time)))
+        print("\r|Estimated: {}|Labels: {}".format(estimated_labels,true_labels))
 
 if not os.path.exists('models'):
     os.makedirs('models')
-    
-agent.model_network.model.save_weights("models/DDQN_model.weights.h5", overwrite=True)
-with open("models/DDQN_model.json", "w") as outfile:
-    json.dump(agent.model_network.model.to_json(), outfile)
+torch.save(agent.model_network.state_dict(), "models/DDQN_model.pth")
 plt.figure(1)
 plt.subplot(211)
 plt.plot(np.arange(len(reward_chain)),reward_chain)
@@ -456,10 +486,10 @@ plt.title('Loss by episode')
 plt.xlabel('n Episode')
 plt.ylabel('loss')
 plt.tight_layout()
-#plt.show()
+plt.show()
 
 
 if not os.path.exists('results'):
     os.makedirs('results')
     
-plt.savefig('results/train_type_improved.eps', format='eps', dpi=1000)
+plt.savefig('results/train_type_improved.png', format='png', dpi=300)

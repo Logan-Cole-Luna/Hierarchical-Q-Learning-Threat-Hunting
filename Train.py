@@ -11,8 +11,12 @@ from utils.intrusion_detection_env import NetworkClassificationEnv
 from utils.trainer import Trainer
 from utils.visualizer import plot_training_metrics
 from utils.evaluation import evaluate_agent
+
+
+
 import logging
 from scripts.preprocess import preprocess_data
+from sklearn.model_selection import KFold
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -57,9 +61,69 @@ def main():
             # Extract feature columns excluding label columns
             feature_cols = [col for col in train_df.columns if col not in ['Label', 'Threat']]
         
-        # Initialize environment and agent
+        # Add k-fold cross-validation
+        k_folds = 5
+        kf = KFold(n_splits=k_folds, shuffle=True, random_state=42)
+        cv_metrics = []
+
+        for fold, (train_idx, val_idx) in enumerate(kf.split(train_df)):
+            logger.info(f"Training fold {fold + 1}/{k_folds}")
+            
+            # Split data for this fold
+            fold_train = train_df.iloc[train_idx]
+            fold_val = train_df.iloc[val_idx]
+            
+            # Initialize environment and agent for this fold
+            env_batch_size = 64  # Define env_batch_size before using it
+            env = NetworkClassificationEnv(fold_train, label_dict, batch_size=env_batch_size)
+            agent = Agent(
+                state_size=env.observation_space.shape[0],
+                action_size=env.action_space.n,
+                hidden_layers=[64, 32],
+                learning_rate=0.001,
+                gamma=0.99,
+                epsilon_start=1.0,
+                epsilon_end=0.01,
+                epsilon_decay=0.995,
+                batch_size=64,
+                memory_size=10000,
+                device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            )
+
+            print(agent.qnetwork_local)
+            
+            # Train the model
+            trainer = Trainer(env, agent)
+            num_episodes = 1000
+            reward_history, loss_history = trainer.train(num_episodes)
+            
+            # Evaluate on validation set
+            eval_env = NetworkClassificationEnv(fold_val, label_dict, batch_size=64)
+            fold_metrics = evaluate_agent(
+                agent=agent,
+                env=eval_env,
+                label_dict=label_dict,
+                test_df=fold_val,
+                save_confusion_matrix=False,  # Only save for final evaluation
+                save_roc_curves=False,
+                save_path=f'results/fold_{fold}'
+            )
+            cv_metrics.append(fold_metrics)
+
+        # Calculate and save cross-validation statistics
+        cv_results = {
+            "accuracy_mean": np.mean([m["accuracy"] for m in cv_metrics]),
+            "accuracy_std": np.std([m["accuracy"] for m in cv_metrics]),
+            "f1_mean": np.mean([m["f1_score"] for m in cv_metrics]),
+            "f1_std": np.std([m["f1_score"] for m in cv_metrics]),
+            "uncertainty_mean": np.mean([m["mean_uncertainty"] for m in cv_metrics])
+        }
+        
+        with open(os.path.join("results", "cross_validation_results.json"), "w") as f:
+            json.dump(cv_results, f, indent=4)
+
+        # Final evaluation on test set
         logger.info("Initializing environment and agent...")
-        env_batch_size = 64  # Define env_batch_size before using it
         env = NetworkClassificationEnv(train_df, label_dict, batch_size=env_batch_size)
         agent = Agent(
             state_size=env.observation_space.shape[0],
@@ -79,7 +143,6 @@ def main():
         
         trainer = Trainer(env, agent)
         
-        num_episodes = 300
         logger.info(f"Starting training for {num_episodes} episodes...")
         
         start_time = time.time()
