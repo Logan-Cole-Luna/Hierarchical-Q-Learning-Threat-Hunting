@@ -13,7 +13,7 @@ class Trainer:
         
         Parameters:
         - env (NetworkClassificationEnv): The environment for training.
-        - agent (Agent): The agent to train.
+        - agent (Agent): The RL agent to train.
         """
         self.env = env
         self.agent = agent

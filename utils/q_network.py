@@ -2,40 +2,7 @@
 
 import torch
 import torch.nn as nn
-'''
-# Base w/ batch
-class QNetwork(nn.Module):
-    """Neural Network for approximating Q-values with Batch Normalization."""
 
-    def __init__(self, state_size, action_size, hidden_layers=[64, 32]):
-        """
-        Initialize parameters and build model with BatchNorm.
-
-        Parameters:
-        - state_size (int): Dimension of each state
-        - action_size (int): Number of possible actions
-        - hidden_layers (list of int): Sizes of hidden layers
-        """
-        super(QNetwork, self).__init__()
-        layers = []
-        input_size = state_size
-
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(input_size, hidden_size))
-            #layers.append(nn.BatchNorm1d(hidden_size))  # Adding BatchNorm
-            layers.append(nn.ReLU())
-            input_size = hidden_size
-
-        layers.append(nn.Linear(input_size, action_size))
-
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, state):
-        """Build a network that maps state -> action values."""
-        return self.network(state)
-'''
-
-# Dueling  Q w/ batch
 class QNetwork(nn.Module):
     """Dueling Q-Network Architecture with Batch Normalization."""
     
@@ -44,10 +11,10 @@ class QNetwork(nn.Module):
         # The shared part of the network processes the state input to extract features.
         self.feature = nn.Sequential(
             nn.Linear(state_size, hidden_layers[0]),
-            #nn.BatchNorm1d(hidden_layers[0]),
+            nn.BatchNorm1d(hidden_layers[0]),
             nn.ReLU(),
             nn.Linear(hidden_layers[0], hidden_layers[1]),
-            #nn.BatchNorm1d(hidden_layers[1]),
+            nn.BatchNorm1d(hidden_layers[1]),
             nn.ReLU()
         )
         
@@ -56,7 +23,7 @@ class QNetwork(nn.Module):
         # return of being in the current state regardless of the action taken.
         self.value_stream = nn.Sequential(
             nn.Linear(hidden_layers[1], 32),
-            #nn.BatchNorm1d(32),
+            nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.Linear(32, 1)
         )
@@ -64,10 +31,9 @@ class QNetwork(nn.Module):
         # Advantage stream
         # This stream estimates the advantage of each action, which represents 
         # how much better or worse an action is compared to others in a given state.
-
         self.advantage_stream = nn.Sequential(
             nn.Linear(hidden_layers[1], 32),
-            #nn.BatchNorm1d(32),
+            nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.Linear(32, action_size)
         )
@@ -76,5 +42,5 @@ class QNetwork(nn.Module):
         x = self.feature(state)
         value = self.value_stream(x)
         advantage = self.advantage_stream(x)
-        q_values = value + (advantage - advantage.mean())
+        q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
         return q_values
