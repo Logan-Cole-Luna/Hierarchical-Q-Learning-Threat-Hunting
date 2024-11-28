@@ -1,3 +1,13 @@
+"""
+Q-Network implementation for deep Q-learning.
+
+This module implements a neural network architecture for Q-value approximation.
+It features batch normalization and configurable hidden layers.
+
+Classes:
+    QNetwork: Neural network that maps states to Q-values for each possible action.
+"""
+
 # utils/q_network.py
 
 import torch

@@ -1,3 +1,24 @@
+"""
+Main training script for the reinforcement learning agent.
+
+This script orchestrates the complete training pipeline including:
+1. Data loading and preparation
+2. Environment and agent initialization
+3. Training loop management
+4. Model evaluation
+5. Results saving and visualization
+
+The script supports both binary and multi-class classification tasks and
+includes comprehensive logging and error handling.
+
+Key Features:
+- Configurable training parameters
+- Progress tracking and logging
+- Model checkpointing
+- Performance evaluation
+- Results visualization
+"""
+
 # train_rl_agent.py
 
 import os
@@ -41,19 +62,17 @@ def load_and_preprocess_data():
     
     return X_train, X_test, y_train, y_test
 
-def evaluate_model(y_true, y_pred):
-    # Verify labels before evaluation
-    logger.info(f"Label value ranges - y_true: {np.unique(y_true)}, y_pred: {np.unique(y_pred)}")
-    
-    # Load label mapping
-    with open('processed_data/multi_class_classification/label_dict.json', 'r') as f:
-        label_dict = json.load(f)
-    
-    # Convert numeric labels to string labels for better readability
-    inv_label_dict = {v: k for k, v in label_dict.items()}
-    y_true_labels = [inv_label_dict[y] if y in inv_label_dict else None for y in y_true]
-    y_pred_labels = [inv_label_dict[y] if y in inv_label_dict else None for y in y_pred]
-    
+def get_print_interval(num_episodes):
+    """Determine appropriate printing interval based on number of episodes."""
+    if num_episodes <= 10:
+        return 1  # Print every episode
+    elif num_episodes <= 50:
+        return 5  # Print every 5th episode
+    elif num_episodes <= 100:
+        return 10  # Print every 10th episode
+    else:
+        return num_episodes // 10  # Print 10 times total
+
 def main():
     try:
         # Ensure all required directories exist upfront
@@ -97,7 +116,10 @@ def main():
     
         # Start training
         num_episodes = 150
-        reward_history, loss_history = trainer.train(num_episodes)
+        print_interval = get_print_interval(num_episodes)
+        logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
+        
+        reward_history, loss_history = trainer.train(num_episodes, print_interval=print_interval)
     
         # Ensure all classes are included in the dataset
         class_counts = Counter(multi_train_df['Label'])
@@ -106,37 +128,54 @@ def main():
         # Modify loss function for multi-class
         criterion = nn.CrossEntropyLoss()
 
-        # Initialize Environment for RL Agent evaluation (batch_size=1)
-        eval_env = NetworkClassificationEnv(multi_test_df, label_dict, batch_size=100)  # Increased batch size
+        # Print final results
+        logger.info("\nTraining completed.")
+        logger.info(f"Final reward: {reward_history[-1]:.2f}")
+        logger.info(f"Final loss: {loss_history[-1]:.4f}")
+
+        # Initialize Environment for RL Agent evaluation
+        eval_env = NetworkClassificationEnv(
+            multi_test_df, 
+            label_dict, 
+            batch_size=100,  # Large batch for faster evaluation
+            max_steps=len(multi_test_df)  # Allow evaluation on full test set
+        )
+
+        # Set agent to evaluation mode
+        agent.qnetwork_local.eval()
         
-        # Initialize Trainer for evaluation
-        trainer_eval = Trainer(eval_env, agent)
-        
-        # Evaluation using evaluate_rl_agent with absolute path
+        # Create evaluation directory
         eval_save_path = os.path.abspath('results/multi_class_classification')
+        os.makedirs(eval_save_path, exist_ok=True)
         logger.info(f"Saving evaluation results to: {eval_save_path}")
         
+        # Run evaluation
         metrics = evaluate_rl_agent(
             agent=agent,
             env=eval_env,
             label_dict=label_dict,
             multi_test_df=multi_test_df,
-            batch_size=100,  # Increased batch size
+            batch_size=100,
             save_confusion_matrix=True,
             save_roc_curves=True,
-            save_path=eval_save_path  # Use absolute path
+            save_path=eval_save_path
         )
 
+        # Set agent back to training mode
+        agent.qnetwork_local.train()
+
         # Log evaluation results
-        logger.info("Evaluation completed. Results:")
-        for metric_name, metric_value in metrics['classification_report'].items():
-            if isinstance(metric_value, dict):
-                logger.info(f"\n{metric_name}:")
-                for k, v in metric_value.items():
-                    logger.info(f"{k}: {v}")
-            else:
-                logger.info(f"{metric_name}: {metric_value}")
-        
+        if metrics:
+            logger.info("Evaluation Results:")
+            logger.info(f"Accuracy: {metrics['classification_report']['accuracy']:.4f}")
+            logger.info("\nPer-class Results:")
+            for class_name in label_dict.keys():
+                class_metrics = metrics['classification_report'][class_name]
+                logger.info(f"\n{class_name}:")
+                logger.info(f"Precision: {class_metrics['precision']:.4f}")
+                logger.info(f"Recall: {class_metrics['recall']:.4f}")
+                logger.info(f"F1-score: {class_metrics['f1-score']:.4f}")
+
         # Plot RL Training Metrics
         rl_metrics_plot_path = os.path.join("results", "multi_class_classification", "rl_training_metrics.png")
         os.makedirs(os.path.dirname(rl_metrics_plot_path), exist_ok=True)

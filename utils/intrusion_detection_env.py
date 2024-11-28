@@ -1,3 +1,19 @@
+"""
+Custom OpenAI Gym environment for network intrusion detection.
+
+This environment simulates a network intrusion detection system where an agent must
+classify network traffic into various attack types or benign traffic.
+
+Features:
+- Batch processing of states
+- Customizable episode length
+- Support for both binary and multi-class classification
+- Built-in reward calculation
+
+Classes:
+    NetworkClassificationEnv: Custom Gym environment for network traffic classification.
+"""
+
 # utils/intrusion_detection_env.py
 
 import gym

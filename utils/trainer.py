@@ -1,9 +1,23 @@
+"""
+Trainer module for managing the training and evaluation of reinforcement learning agents.
+
+This module provides functionality to:
+1. Train agents over multiple episodes
+2. Track training metrics (rewards, losses)
+3. Evaluate trained agents
+4. Generate performance metrics and probabilities
+
+Classes:
+    Trainer: Manages the training and evaluation of RL agents.
+"""
+
 # utils/trainer.py
 
 import torch
 import numpy as np
 import logging
 from scipy.special import softmax
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -19,56 +33,54 @@ class Trainer:
         self.env = env
         self.agent = agent
 
-    def train(self, num_episodes):
+    def train(self, num_episodes, print_interval=None):
         """
-        Trains the agent over a specified number of episodes.
+        Train the agent for the specified number of episodes.
         
-        Parameters:
-        - num_episodes (int): Number of training episodes.
-        
-        Returns:
-        - reward_history (list): List of total rewards per episode.
-        - loss_history (list): List of loss values per episode.
+        Args:
+            num_episodes (int): Number of episodes to train for
+            print_interval (int): How often to print progress (every N episodes)
         """
+        if print_interval is None:
+            print_interval = max(1, num_episodes // 10)
+
         reward_history = []
         loss_history = []
-        logger.info(f"Starting training for {num_episodes} episodes...")
+        recent_rewards = deque(maxlen=10)  # Track last 10 rewards for averaging
 
         for episode in range(1, num_episodes + 1):
             states, labels = self.env.reset()
-            total_reward = 0.0
+            total_reward = 0
             losses = []
             done = False
 
             while not done:
-                actions = self.agent.act(states)  # List of actions
-                next_states, rewards, done, next_labels = self.env.step(actions)  # Env step
+                actions = self.agent.act(states)
+                next_states, rewards, done, next_labels = self.env.step(actions)
+                
+                # Store experiences and learn
+                for state, action, reward, next_state in zip(states, actions, rewards, next_states):
+                    loss = self.agent.step(state, action, reward, next_state, done)
+                    if loss is not None:
+                        losses.append(loss)
+                
+                total_reward += sum(rewards)
+                states = next_states
 
-                # Collect experiences
-                for state, action, reward, next_state, done_flag in zip(states, actions, rewards, next_states, [done]*len(actions)):
-                    self.agent.step(state, action, reward, next_state, done_flag)
-
-                # Update total reward
-                total_reward += np.sum(rewards)
-
-                # Update states and labels for the next step
-                states, labels = next_states, next_labels
-
-            # Log episode results
+            # Record metrics
+            avg_loss = np.mean(losses) if losses else 0
             reward_history.append(total_reward)
-            # For simplicity, collect the latest loss (if available)
-            loss = self.agent.learn() if len(self.agent.memory) > self.agent.batch_size else 0.0
-            loss_history.append(loss)
+            loss_history.append(avg_loss)
+            recent_rewards.append(total_reward)
+            avg_reward = np.mean(recent_rewards)
 
-            # Logging
-            logger.info(f"Episode {episode}/{num_episodes} - Total Reward: {total_reward:.2f} - Average Reward (last 10): {np.mean(reward_history[-10:]):.2f} - Average Loss: {np.mean(loss_history[-10:]):.4f}")
+            # Print progress at intervals
+            if episode % print_interval == 0:
+                logger.info(f"Episode {episode}/{num_episodes} - "
+                          f"Total Reward: {total_reward:.2f} - "
+                          f"Average Reward (last 10): {avg_reward:.2f} - "
+                          f"Average Loss: {avg_loss:.4f}")
 
-            # Log progress every 10 episodes
-            if episode % 10 == 0:
-                average_reward = np.mean(reward_history[-10:])
-                logger.info(f"Episode {episode}/{num_episodes}, Average Reward: {average_reward:.2f}")
-
-        logger.info("Training completed.")
         return reward_history, loss_history
 
     def evaluate(self):

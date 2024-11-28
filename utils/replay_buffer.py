@@ -1,4 +1,16 @@
+
 # utils/replay_buffer.py
+
+"""
+Experience replay buffer implementation for reinforcement learning.
+
+This module implements a circular buffer to store and sample experiences for training.
+It helps break correlation between consecutive samples and enables batch learning.
+
+Classes:
+    ReplayBuffer: A fixed-size buffer to store and sample experiences.
+        Experiences contain (state, action, reward, next_state, done) tuples.
+"""
 
 import random
 import numpy as np

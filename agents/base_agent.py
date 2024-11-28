@@ -1,3 +1,20 @@
+"""
+Base reinforcement learning agent implementation.
+
+This module implements a DQN (Deep Q-Network) agent with the following features:
+- Experience replay
+- Target network for stable learning
+- Epsilon-greedy exploration
+- Configurable network architecture
+- Batch prediction support
+
+The agent can handle both binary and multi-class classification tasks through
+its Q-network architecture.
+
+Classes:
+    Agent: Implementation of DQN agent with experience replay and target networks.
+"""
+
 # agents/base_agent.py
 
 import torch

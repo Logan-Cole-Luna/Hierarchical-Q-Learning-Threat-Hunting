@@ -1,3 +1,17 @@
+"""
+Training script for the binary classifier in the hierarchical classification system.
+
+This script handles the training of a binary classifier that distinguishes between
+benign and malicious network traffic. It serves as the first stage in the
+hierarchical classification system.
+
+Key Features:
+- Loads preprocessed binary classification data
+- Initializes and trains binary classifier
+- Evaluates model performance
+- Saves model and evaluation results
+"""
+
 # train_binary_classifier.py
 
 import os

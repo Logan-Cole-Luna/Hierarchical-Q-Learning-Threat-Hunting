@@ -1,3 +1,27 @@
+"""
+Data preprocessing pipeline for network intrusion detection.
+
+This script handles the complete preprocessing pipeline including:
+1. Data loading and cleaning
+2. Feature engineering and selection
+3. Label transformation
+4. Train/test splitting
+5. Data balancing
+6. Feature scaling
+7. Creation of hierarchical datasets
+
+Key Features:
+- Handles both binary and multi-class classification
+- Removes constant and highly correlated features
+- Supports multiple balancing methods (SMOTE, undersampling)
+- Creates stratified train/test splits
+- Generates subset data for quick testing
+- Saves preprocessed data and metadata
+
+Functions:
+    Multiple preprocessing and utility functions documented within the script.
+"""
+
 import os
 import pandas as pd
 import numpy as np
