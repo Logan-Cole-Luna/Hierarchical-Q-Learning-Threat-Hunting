@@ -11,6 +11,7 @@ from utils.trainer import Trainer
 from utils.visualizer import plot_training_metrics
 from utils.evaluation import evaluate_rl_agent
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

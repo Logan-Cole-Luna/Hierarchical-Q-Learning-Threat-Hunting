@@ -611,7 +611,7 @@ def main():
     threat_col = "Threat"
     test_size = 0.2
     random_state = 42
-    balancing_method = 'smote'  # Options: 'smote', 'undersample'
+    balancing_method = 'undersample'  # Options: 'smote', 'undersample'
     samples_per_class_subset = 10  # Number of samples per class in train_subset_df
     feature_importance_threshold = 0.01  # Threshold for feature selection
 
