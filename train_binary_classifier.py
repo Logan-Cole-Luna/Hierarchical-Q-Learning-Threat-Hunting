@@ -5,6 +5,7 @@ import json
 import pandas as pd
 from agents.binary_agent import BinaryAgent
 import logging
+from utils.evaluation import evaluate_binary_classifier  # Import evaluation function
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -13,10 +14,10 @@ logger = logging.getLogger(__name__)
 def main():
     try:
         # Define paths
-        binary_train_path = "processed_data/binary_classification/train_binary.csv"
-        binary_test_path = "processed_data/binary_classification/test_binary.csv"
-        label_dict_path = "processed_data/label_dict.json"
-        class_weights_path = "processed_data/class_weights.json"
+        binary_train_path = "processed_data/binary_classification/test_binary.csv"
+        binary_test_path = "processed_data/binary_classification/train_binary.csv"  # Fixed path
+        label_dict_path = "processed_data/binary_classification/label_dict.json"
+        class_weights_path = "processed_data/binary_classification/class_weights.json"
         model_path = "models/binary_classifier.pkl"
         evaluation_save_path = "results/binary_classification"
 
@@ -54,13 +55,22 @@ def main():
         report = binary_agent.train(train_df, test_df)
         logger.info("Binary Classifier Training and Evaluation Completed.")
         
+        # Ensure probabilities are obtained for ROC computation
+        X_test = test_df[feature_cols]
+        y_scores = binary_agent.model.predict_proba(X_test)
+        
         # Evaluate Binary Classifier
         logger.info("Evaluating Binary Classifier on Test Data...")
         binary_report = report  # Already handled within BinaryAgent
         logger.info("Binary Classification Evaluation Metrics:")
-        for key, value in binary_report.items():
-            logger.info(f"{key}: {value}")
+        if isinstance(binary_report, dict):
+            for key, value in binary_report.items():
+                logger.info(f"{key}: {value}")
+        else:
+            logger.error("binary_report is not a dictionary.")
         
+        # Call evaluation function to save performance metrics and visuals
+        evaluate_binary_classifier(binary_agent, test_df, save_path='results/binary_classification')
     except Exception as e:
         logger.exception("An error occurred during binary classifier training.")
 

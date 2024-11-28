@@ -8,6 +8,11 @@ from sklearn.metrics import classification_report
 from xgboost import XGBClassifier
 from sklearn.utils.class_weight import compute_class_weight
 import logging
+import numpy as np
+import skl2onnx
+from skl2onnx import convert_sklearn
+from skl2onnx.common.data_types import FloatTensorType
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +70,9 @@ class BinaryAgent:
         )
         logger.info("Binary Classifier training completed.")
         
-        # Save the model
+        # Save the model using joblib.dump instead of torch.save
         os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
-        joblib.dump(self.model, self.model_path)
+        joblib.dump(self.model, self.model_path)  # Changed from torch.save to joblib.dump
         logger.info(f"Binary Classifier saved to {self.model_path}")
         
         # Save class weights and label dictionary
@@ -82,10 +87,25 @@ class BinaryAgent:
         # Evaluate on test set
         y_test_encoded = y_test.map(self.label_dict).astype(int)
         y_pred = self.model.predict(X_test)
-        report = classification_report(y_test_encoded, y_pred, target_names=classes)
+        report = classification_report(y_test_encoded, y_pred, target_names=classes, output_dict=True)
         logger.info("Binary Classifier Evaluation Report:")
-        logger.info("\n" + report)
+        logger.info("\n" + json.dumps(report, indent=2))
         return report
+    
+    def export_to_onnx(self, onnx_model_path, feature_cols):
+        """
+        Exports the trained XGBoost model to ONNX format.
+        
+        Parameters:
+        - onnx_model_path (str): Path to save the ONNX model.
+        - feature_cols (list): List of feature column names.
+        """
+        logger.info("Exporting Binary Classifier to ONNX format...")
+        initial_type = [('float_input', FloatTensorType([None, len(feature_cols)]))]
+        onnx_model = convert_sklearn(self.model, initial_types=initial_type)
+        with open(onnx_model_path, "wb") as f:
+            f.write(onnx_model.SerializeToString())
+        logger.info(f"Binary Classifier exported to ONNX at {onnx_model_path}")
     
     def predict(self, X):
         """
@@ -98,3 +118,18 @@ class BinaryAgent:
         - predictions (np.ndarray): Predicted binary labels.
         """
         return self.model.predict(X)
+    
+    def predict_batch(self, X_batch):
+        """
+        Predicts labels and returns both predictions and prediction probabilities for a batch of data.
+        
+        Parameters:
+        - X_batch (np.ndarray): Batch of input features.
+    
+        Returns:
+        - preds (np.ndarray): Predicted labels.
+        - scores (np.ndarray): Prediction probabilities.
+        """
+        preds = self.model.predict(X_batch)
+        scores = self.model.predict_proba(X_batch)  # Ensure probabilities are returned
+        return preds, scores

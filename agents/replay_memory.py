@@ -1,7 +1,7 @@
 # agents/replay_memory.py
 
+from collections import deque, namedtuple
 import random
-from collections import deque
 
 class ReplayMemory:
     """Fixed-size buffer to store experience tuples."""
@@ -14,6 +14,8 @@ class ReplayMemory:
         - capacity (int): Maximum size of buffer
         """
         self.memory = deque(maxlen=capacity)
+        self.experience = namedtuple("Experience",
+                                     field_names=["state", "action", "reward", "next_state", "done"])
 
     def push(self, state, action, reward, next_state, done):
         """
@@ -26,7 +28,8 @@ class ReplayMemory:
         - next_state (np.ndarray): Next state
         - done (bool): Whether the episode has ended
         """
-        self.memory.append((state, action, reward, next_state, done))
+        e = self.experience(state, action, reward, next_state, done)
+        self.memory.append(e)
 
     def sample(self, batch_size):
         """
@@ -38,7 +41,7 @@ class ReplayMemory:
         Returns:
         - list of tuples: Sampled experiences
         """
-        return random.sample(self.memory, batch_size)
+        return random.sample(self.memory, k=batch_size)
 
     def __len__(self):
         """Return the current size of internal memory."""

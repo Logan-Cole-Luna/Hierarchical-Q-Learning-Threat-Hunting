@@ -50,7 +50,7 @@ class Agent:
         - device (torch.device): Device to run computations on
         """
         self.state_size = state_size
-        self.action_size = action_size
+        self.action_size = action_size  # Ensure action_size matches the number of classes
         self.hidden_layers = hidden_layers
         self.learning_rate = learning_rate
         self.gamma = gamma
@@ -85,7 +85,7 @@ class Agent:
         Returns:
         - actions (list): List of selected action indices
         """
-        states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, state_size]
+        states = torch.FloatTensor(np.array(states)).to(self.device)  # Shape: [batch_size, state_size]
         self.qnetwork_local.eval()
         with torch.no_grad():
             action_values = self.qnetwork_local(states)  # Shape: [batch_size, action_size]

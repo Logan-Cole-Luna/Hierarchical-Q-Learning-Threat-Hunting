@@ -3,6 +3,7 @@
 import torch
 import numpy as np
 import logging
+from scipy.special import softmax
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class Trainer:
         """
         reward_history = []
         loss_history = []
+        logger.info(f"Starting training for {num_episodes} episodes...")
 
         for episode in range(1, num_episodes + 1):
             states, labels = self.env.reset()
@@ -58,7 +60,17 @@ class Trainer:
             loss = self.agent.learn() if len(self.agent.memory) > self.agent.batch_size else 0.0
             loss_history.append(loss)
 
+            # Ensure y_scores are probabilities
+            y_scores = self.agent.predict_batch(states)
+            y_scores = softmax(y_scores, axis=1)
+
             # Logging
             logger.info(f"Episode {episode}/{num_episodes} - Total Reward: {total_reward:.2f} - Average Reward (last 10): {np.mean(reward_history[-10:]):.2f} - Average Loss: {np.mean(loss_history[-10:]):.4f}")
 
+            # Log progress every 10 episodes
+            if episode % 10 == 0:
+                average_reward = np.mean(reward_history[-10:])
+                logger.info(f"Episode {episode}/{num_episodes}, Average Reward: {average_reward:.2f}")
+
+        logger.info("Training completed.")
         return reward_history, loss_history

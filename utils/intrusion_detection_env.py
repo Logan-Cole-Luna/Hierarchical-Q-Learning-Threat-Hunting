@@ -15,6 +15,7 @@ class NetworkClassificationEnv(gym.Env):
         self.max_steps = max_steps
         self.current_step = 0
         self.num_samples = len(self.data_df)
+        self.labels = None  # Initialize labels
         
         # Define action and observation space
         self.action_space = spaces.Discrete(len(label_dict))  # Actions correspond to different attack types
@@ -30,7 +31,9 @@ class NetworkClassificationEnv(gym.Env):
         self.data_df = self.data_df.sample(frac=1).reset_index(drop=True)  # Shuffle data
         self.done = False
         self.steps_taken = 0
-        return self._get_batch()
+        states, labels = self._get_batch()
+        self.labels = labels  # Assign labels
+        return states, labels
 
     def _get_batch(self):
         end_index = min(self.current_step + self.batch_size, self.num_samples)
@@ -72,6 +75,10 @@ class NetworkClassificationEnv(gym.Env):
         - done (bool): Whether the episode is done
         - next_labels (np.ndarray): True labels for the next batch
         """
+        # If action needs to be probabilistic, modify accordingly
+        # For example:
+        action_prob = actions  # Assuming action is already a probability distribution
+
         rewards = self._compute_rewards(actions, self.labels)
         next_states, next_labels = self._get_batch()
         

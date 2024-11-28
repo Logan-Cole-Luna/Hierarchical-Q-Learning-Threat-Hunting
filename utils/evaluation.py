@@ -41,8 +41,8 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
     y_test_encoded = y_test.map(binary_agent.label_dict).astype(int).values
     
     # Initialize predictions array
-    y_pred = np.empty_like(y_test_encoded)
-    y_scores = np.empty((len(y_test_encoded), len(binary_agent.label_dict)), dtype=np.float32)
+    y_pred = []
+    y_scores = []
     
     # Batch processing
     logger.info("Starting batch prediction for Binary Classifier...")
@@ -50,8 +50,8 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
         end = start + batch_size
         X_batch = X_test[start:end]
         preds, scores = binary_agent.predict_batch(X_batch)
-        y_pred[start:end] = preds
-        y_scores[start:end] = scores
+        y_pred.extend(preds)
+        y_scores.extend(scores[:, 1])  # Assuming class '1' is 'Malicious'
     logger.info("Batch prediction completed.")
     
     classes = list(binary_agent.label_dict.keys())
@@ -61,16 +61,18 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
     cm_normalized = confusion_matrix(y_test_encoded, y_pred, normalize='true')
     
     if save_confusion_matrix:
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(cm_normalized, annot=True, fmt=".2f", xticklabels=classes, yticklabels=classes, cmap='Blues')
-        plt.xlabel('Predicted')
-        plt.ylabel('True')
-        plt.title('Normalized Confusion Matrix - Binary Classification')
-        plt.tight_layout()
-        cm_path = os.path.join(save_path, 'binary_confusion_matrix.png')
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        
+        plt.figure(figsize=(6,5))
+        sns.heatmap(cm_normalized, annot=True, fmt=".2f", cmap='Blues', xticklabels=classes, yticklabels=classes)
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        plt.title('Confusion Matrix (Normalized)')
+        cm_path = os.path.join(save_path, 'confusion_matrix.png')
         plt.savefig(cm_path)
         plt.close()
-        logger.info(f"Binary Confusion matrix saved to {cm_path}")
+        logger.info(f"Confusion matrix saved to {cm_path}")
     
     # Generate Classification Report
     report = classification_report(y_test_encoded, y_pred, target_names=classes, output_dict=True)
@@ -81,36 +83,22 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
     
     # Generate ROC Curve
     if save_roc_curve:
-        # Binarize the labels for ROC
-        y_true_binarized = label_binarize(y_test_encoded, classes=list(binary_agent.label_dict.values()))
-        if y_true_binarized.shape[1] == 1:
-            y_true_binarized = np.hstack([1 - y_true_binarized, y_true_binarized])
+        fpr, tpr, _ = roc_curve(y_test_encoded, y_scores)
+        roc_auc = auc(fpr, tpr)
         
-        # Compute ROC curve and ROC area for each class
-        fpr = dict()
-        tpr = dict()
-        roc_auc = dict()
-        for i in range(len(classes)):
-            fpr[i], tpr[i], _ = roc_curve(y_true_binarized[:, i], y_scores[:, i])
-            roc_auc[i] = auc(fpr[i], tpr[i])
-        
-        # Plot ROC curves
-        plt.figure(figsize=(8, 6))
-        for i in range(len(classes)):
-            plt.plot(fpr[i], tpr[i], label=f'ROC curve for {classes[i]} (AUC = {roc_auc[i]:.2f})')
-        
-        plt.plot([0, 1], [0, 1], 'k--')  # Diagonal line
+        plt.figure()
+        plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title('Receiver Operating Characteristic - Binary Classification')
+        plt.title('Receiver Operating Characteristic')
         plt.legend(loc="lower right")
-        plt.tight_layout()
-        roc_path = os.path.join(save_path, 'binary_roc_curve.png')
+        roc_path = os.path.join(save_path, 'roc_curve.png')
         plt.savefig(roc_path)
         plt.close()
-        logger.info(f"Binary ROC curve saved to {roc_path}")
+        logger.info(f"ROC curve saved to {roc_path}")
     
     return report
 
@@ -155,12 +143,12 @@ def evaluate_rl_agent(agent, env, label_dict, multi_test_df, batch_size=256, sav
     y_pred = np.array(all_actions)
     y_true = np.array(all_labels)
     
-    # Assuming that RL agent provides action probabilities or Q-values for ROC
-    # For this example, we'll simulate probabilities using one-hot encoding
-    y_scores = np.zeros((len(y_true), len(label_dict)))
-    y_scores[np.arange(len(y_true)), y_pred] = 1.0  # Simplistic approach
-
-    classes = list(label_dict.keys())
+    # Filter out NaN values
+    valid_indices = ~np.isnan(y_true)
+    y_true = y_true[valid_indices]
+    y_pred = y_pred[valid_indices]
+    
+    classes = list(label_dict.keys())  # Define 'classes' based on label_dict
     
     # Generate Confusion Matrix
     cm = confusion_matrix(y_true, y_pred)
@@ -196,9 +184,21 @@ def evaluate_rl_agent(agent, env, label_dict, multi_test_df, batch_size=256, sav
         fpr = dict()
         tpr = dict()
         roc_auc = dict()
-        for i in range(n_classes):
+        
+        y_true_binarized = np.array(y_true_binarized)
+        y_scores = np.array(y_scores)
+        
+        # Binarize the true labels if not already binarized
+        if y_true_binarized.ndim == 1:
+            classes = np.unique(y_true_binarized)
+            y_true_binarized = label_binarize(y_true_binarized, classes=classes)
+        
+        # Ensure y_scores has the same number of columns as y_true_binarized
+        if y_scores.ndim == 1:
+            y_scores = y_scores.reshape(-1, 1)
+        
+        for i in range(y_true_binarized.shape[1]):
             fpr[i], tpr[i], _ = roc_curve(y_true_binarized[:, i], y_scores[:, i])
-            roc_auc[i] = auc(fpr[i], tpr[i])
     
         # Plot ROC curves
         plt.figure(figsize=(12, 10))

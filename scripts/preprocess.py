@@ -387,52 +387,41 @@ def scale_features(train_df, test_df, feature_cols):
 
 def compute_class_weights(train_df, label_col='Label'):
     """
-    Computes class weights based on the training set.
-
-    Parameters:
-    - train_df (pd.DataFrame): Training set.
-    - label_col (str): Name of the label column.
-
-    Returns:
-    - class_weights_dict (dict): Dictionary mapping class indices to weights.
-    - label_dict (dict): Dictionary mapping labels to their original names.
+    Computes class weights based on the training set for the specified label column.
     """
-    print("\nComputing class weights...")
+    print(f"\nComputing class weights for '{label_col}'...")
     classes = np.unique(train_df[label_col])
     y = train_df[label_col].values
     weights = class_weight.compute_class_weight('balanced', classes=classes, y=y)
-    class_weights = {i: weight for i, weight in enumerate(weights)}
+    class_weights = {label: weight for label, weight in zip(classes, weights)}
+    print(f"Class Weights ({label_col}): {class_weights}")
+    return class_weights
 
+def encode_labels(train_df, test_df, label_col='Label'):
+    """
+    Encodes labels into integers and creates a label dictionary for the specified label column.
+    """
+    print(f"\nEncoding labels for '{label_col}'...")
+    classes = np.unique(train_df[label_col])
     label_dict = {label: idx for idx, label in enumerate(classes)}
+    print(f"Label Dictionary ({label_col}): {label_dict}")
+    train_df[label_col] = train_df[label_col].map(label_dict)
+    test_df[label_col] = test_df[label_col].map(label_dict)
+    return label_dict
 
-    print("Class Weights:")
-    print(class_weights)
-
-    return class_weights, label_dict
-
-def encode_labels(train_df, test_df, label_col='Label', label_dict=None):
+def save_label_dict_and_class_weights(label_dict, class_weights, output_dir):
     """
-    Encodes labels as numerical indices based on the label_dict.
-
-    Parameters:
-    - train_df (pd.DataFrame): Training set.
-    - test_df (pd.DataFrame): Testing set.
-    - label_col (str): Name of the label column.
-    - label_dict (dict or None): Dictionary mapping labels to indices.
-
-    Returns:
-    - y_train (list): Encoded training labels.
-    - y_test (list): Encoded testing labels.
-    - label_dict (dict): Updated label dictionary.
+    Saves the label dictionary and class weights to the specified output directory.
     """
-    if label_dict is None:
-        unique_labels = np.unique(train_df[label_col])
-        label_dict = {label: idx for idx, label in enumerate(unique_labels)}
+    # Save label dictionary
+    with open(os.path.join(output_dir, 'label_dict.json'), 'w') as f:
+        json.dump(label_dict, f)
+    print(f"Saved label dictionary to '{output_dir}/label_dict.json'.")
 
-    y_train = train_df[label_col].map(label_dict).astype(int).tolist()
-    y_test = test_df[label_col].map(label_dict).astype(int).tolist()
-
-    return y_train, y_test, label_dict
+    # Save class weights
+    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f:
+        json.dump(class_weights, f)
+    print(f"Saved class weights to '{output_dir}/class_weights.json'.")
 
 def train_xgb_and_select_features(train_df, test_df, feature_cols, y_train, y_test, label_dict, output_dir='processed_data', importance_threshold=0.01):
     """
@@ -540,57 +529,61 @@ def save_processed_data(train_df, test_df, train_subset_df, feature_cols, select
         json.dump(class_weights, f)
     print(f"Saved class weights to '{output_dir}/class_weights.json'.")
 
-def create_hierarchical_datasets(train_df_balanced, test_df, label_dict, threat_col='Threat', output_dir='processed_data'):
+def create_hierarchical_datasets(train_df_balanced, test_df, feature_cols, output_dir='processed_data', subset_size=100):
     """
-    Creates two separate datasets for hierarchical modeling:
-    1. Binary Classification Dataset (Benign vs Malicious)
-    2. Multi-Class Classification Dataset (Specific Attack Types)
-
-    Parameters:
-    - train_df_balanced (pd.DataFrame): Balanced training set.
-    - test_df (pd.DataFrame): Testing set.
-    - label_dict (dict): Dictionary mapping labels to indices.
-    - threat_col (str): Name of the binary threat column.
-    - output_dir (str): Directory to save the hierarchical datasets.
+    Creates hierarchical datasets for binary and multi-class classification,
+    including subsets for overfitting tests, and saves separate label dictionaries and class weights.
     """
     print("\nCreating hierarchical datasets for binary and multi-class classification...")
 
     # 1. Binary Classification Dataset
-    # Define binary labels
-    binary_label_col = 'Threat'  # 'Benign' vs 'Malicious'
     binary_output_dir = os.path.join(output_dir, 'binary_classification')
     os.makedirs(binary_output_dir, exist_ok=True)
 
     # Save binary classification datasets
-    train_df_balanced[['Threat'] + [col for col in train_df_balanced.columns if col not in ['Label', 'Threat']]].to_csv(
-        os.path.join(binary_output_dir, 'train_binary.csv'), index=False
-    )
-    test_df[['Threat'] + [col for col in test_df.columns if col not in ['Label', 'Threat']]].to_csv(
-        os.path.join(binary_output_dir, 'test_binary.csv'), index=False
-    )
+    train_binary = train_df_balanced[['Threat'] + feature_cols]
+    test_binary = test_df[['Threat'] + feature_cols]
+    train_binary.to_csv(os.path.join(binary_output_dir, 'train_binary.csv'), index=False)
+    test_binary.to_csv(os.path.join(binary_output_dir, 'test_binary.csv'), index=False)
     print(f"Saved binary classification datasets to '{binary_output_dir}'.")
 
-    # 2. Multi-Class Classification Dataset (Only Malicious Traffic)
+    # Create binary subset for overfitting tests
+    train_binary_subset = train_binary.groupby('Threat', group_keys=False).apply(lambda x: x.sample(n=min(len(x), subset_size)))
+    train_binary_subset.to_csv(os.path.join(binary_output_dir, 'train_binary_subset.csv'), index=False)
+    print(f"Saved binary classification subset to '{binary_output_dir}/train_binary_subset.csv'.")
+
+    # Compute and save label dictionary and class weights for binary classification
+    binary_class_weights = compute_class_weights(train_binary, label_col='Threat')
+    binary_label_dict = encode_labels(train_binary, test_binary, label_col='Threat')
+    save_label_dict_and_class_weights(binary_label_dict, binary_class_weights, binary_output_dir)
+
+    # 2. Multi-Class Classification Dataset
     multi_class_output_dir = os.path.join(output_dir, 'multi_class_classification')
     os.makedirs(multi_class_output_dir, exist_ok=True)
 
-    # Filter out benign samples
-    train_malicious = train_df_balanced[train_df_balanced['Threat'] == 'Malicious']
-    test_malicious = test_df[test_df['Threat'] == 'Malicious']
+    # Map 'Malicious' to its encoded value
+    malicious_label = next(key for key, value in binary_label_dict.items() if value == binary_label_dict['Malicious'])
 
-    # Encode multi-class labels
-    multi_label_col = 'Label'  # Specific attack types
-    y_train_multi = train_malicious[multi_label_col].map(label_dict).astype(int).tolist()
-    y_test_multi = test_malicious[multi_label_col].map(label_dict).astype(int).tolist()
+    # Filter malicious samples for multi-class classification
+    train_malicious = train_df_balanced[train_df_balanced['Threat'] == malicious_label]
+    test_malicious = test_df[test_df['Threat'] == malicious_label]
 
     # Save multi-class classification datasets
-    train_malicious[[multi_label_col] + [col for col in train_malicious.columns if col not in ['Label', 'Threat']]].to_csv(
-        os.path.join(multi_class_output_dir, 'train_multi_class.csv'), index=False
-    )
-    test_malicious[[multi_label_col] + [col for col in test_malicious.columns if col not in ['Label', 'Threat']]].to_csv(
-        os.path.join(multi_class_output_dir, 'test_multi_class.csv'), index=False
-    )
+    train_multi = train_malicious[['Label'] + feature_cols]
+    test_multi = test_malicious[['Label'] + feature_cols]
+    train_multi.to_csv(os.path.join(multi_class_output_dir, 'train_multi_class.csv'), index=False)
+    test_multi.to_csv(os.path.join(multi_class_output_dir, 'test_multi_class.csv'), index=False)
     print(f"Saved multi-class classification datasets to '{multi_class_output_dir}'.")
+
+    # Create multi-class subset for overfitting tests
+    train_multi_subset = train_multi.groupby('Label', group_keys=False).apply(lambda x: x.sample(n=min(len(x), subset_size)))
+    train_multi_subset.to_csv(os.path.join(multi_class_output_dir, 'train_multi_class_subset.csv'), index=False)
+    print(f"Saved multi-class classification subset to '{multi_class_output_dir}/train_multi_class_subset.csv'.")
+
+    # Compute and save label dictionary and class weights for multi-class classification
+    multi_class_weights = compute_class_weights(train_multi, label_col='Label')
+    multi_label_dict = encode_labels(train_multi, test_multi, label_col='Label')
+    save_label_dict_and_class_weights(multi_label_dict, multi_class_weights, multi_class_output_dir)
 
 def main():
     # Define parameters
@@ -631,44 +624,28 @@ def main():
     train_df, test_df = split_data(df_all, label_col=label_col, threat_col=threat_col, test_size=test_size, random_state=random_state)
     del df_all  # Free up memory
 
+    # Feature columns
+    feature_cols = [col for col in train_df.columns if col not in [label_col, threat_col]]
+
     # Balance the training set
     train_df_balanced = balance_training_set(
-        train_df, label_col=label_col, method=balancing_method, random_state=random_state
+        train_df,
+        label_col=label_col,
+        method=balancing_method,
+        random_state=random_state
     )
     del train_df  # Free up memory
-
-    # Feature columns
-    feature_cols = [col for col in train_df_balanced.columns if col not in [label_col, threat_col]]
 
     # Scale features
     train_df_balanced, test_df, scaler = scale_features(train_df_balanced, test_df, feature_cols)
 
-    # Compute class weights
-    class_weights, label_dict = compute_class_weights(train_df_balanced, label_col=label_col)
-
-    # Encode labels
-    y_train, y_test, label_dict = encode_labels(train_df_balanced, test_df, label_col=label_col, label_dict=label_dict)
-
-    # Train XGBoost classifier and select important features
-    selected_features = train_xgb_and_select_features(
-        train_df_balanced, test_df, feature_cols, y_train, y_test, label_dict,
-        output_dir='processed_data', importance_threshold=feature_importance_threshold
-    )
-
-    # Create a subset of the training data for overfitting test
-    train_subset_df = create_train_subset(
-        train_df_balanced, label_col=label_col, samples_per_class=samples_per_class_subset, random_state=random_state
-    )
-
-    # Save processed data
-    save_processed_data(
-        train_df_balanced, test_df, train_subset_df, feature_cols, selected_features,
-        label_dict, class_weights, output_dir='processed_data'
-    )
-
-    # Create hierarchical datasets
+    # Create hierarchical datasets with subsets
     create_hierarchical_datasets(
-        train_df_balanced, test_df, label_dict, threat_col=threat_col, output_dir='processed_data'
+        train_df_balanced=train_df_balanced,
+        test_df=test_df,
+        feature_cols=feature_cols,
+        output_dir='processed_data',
+        subset_size=100  # Adjust the subset size as needed
     )
 
     print("\nPreprocessing completed successfully.")
