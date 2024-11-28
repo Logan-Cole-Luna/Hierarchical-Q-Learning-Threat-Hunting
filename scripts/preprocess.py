@@ -337,7 +337,8 @@ def balance_training_set(train_df, label_col='Label', method='smote', random_sta
     Returns:
     - train_df_balanced (pd.DataFrame): Balanced training set.
     """
-    X = train_df.drop([label_col, 'Threat'], axis=1)
+    # Keep track of the Threat column
+    X = train_df.drop([label_col], axis=1)  # Keep 'Threat' column in X
     y = train_df[label_col]
 
     print("\nOriginal training set class distribution:")
@@ -354,18 +355,12 @@ def balance_training_set(train_df, label_col='Label', method='smote', random_sta
     else:
         raise ValueError("Unsupported balancing method. Choose 'smote' or 'undersample'.")
 
-    train_df_balanced = pd.concat([X_balanced, y_balanced], axis=1)
+    # Reconstruct DataFrame with both Label and Threat
+    train_df_balanced = pd.DataFrame(X_balanced, columns=X.columns)
+    train_df_balanced[label_col] = y_balanced
+    
     print(f"\nBalanced training set shape: {train_df_balanced.shape}")
     print(f"Balanced training set class distribution:\n{train_df_balanced[label_col].value_counts()}")
-
-    # Optional: Further subset to a fixed number of samples per class
-    if samples_per_class:
-        print(f"\nSubsetting to {samples_per_class} samples per class...")
-        train_df_balanced = train_df_balanced.groupby(label_col).apply(
-            lambda x: x.sample(n=samples_per_class, random_state=random_state) if len(x) >= samples_per_class else x
-        ).reset_index(drop=True)
-        print(f"Training set shape after subsetting: {train_df_balanced.shape}")
-        print(f"Training set distribution after subsetting:\n{train_df_balanced[label_col].value_counts()}")
 
     return train_df_balanced
 
@@ -521,13 +516,18 @@ def save_processed_data(train_df, test_df, train_subset_df, feature_cols, select
     """
     os.makedirs(output_dir, exist_ok=True)
 
+    # Add 'Threat' column to selected features if it's not already included
+    save_columns = selected_features + ['Label']
+    if 'Threat' in train_df.columns:
+        save_columns.append('Threat')
+
     # Save training and testing sets with selected features
-    train_df[selected_features + ['Label', 'Threat']].to_csv(os.path.join(output_dir, 'train_df.csv'), index=False)
-    test_df[selected_features + ['Label', 'Threat']].to_csv(os.path.join(output_dir, 'test_df.csv'), index=False)
+    train_df[save_columns].to_csv(os.path.join(output_dir, 'train_df.csv'), index=False)
+    test_df[save_columns].to_csv(os.path.join(output_dir, 'test_df.csv'), index=False)
     print(f"\nSaved processed training and testing sets to '{output_dir}' directory.")
 
     # Save training subset
-    train_subset_df[selected_features + ['Label', 'Threat']].to_csv(os.path.join(output_dir, 'train_subset_df.csv'), index=False)
+    train_subset_df[save_columns].to_csv(os.path.join(output_dir, 'train_subset_df.csv'), index=False)
     print(f"Saved training subset to '{output_dir}/train_subset_df.csv'.")
 
     # Save label dictionary
