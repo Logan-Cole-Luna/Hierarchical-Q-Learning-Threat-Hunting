@@ -20,4 +20,4 @@ class QNetwork(nn.Module):
     
     def forward(self, state):
         x = self.network(state)
-        return F.softmax(x, dim=1)  # Changed from raw output to probabilities
+        return x  # Return raw Q-values without activation

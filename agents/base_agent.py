@@ -80,28 +80,29 @@ class Agent:
         Selects actions for a batch of states using an epsilon-greedy policy.
 
         Parameters:
-        - states (np.ndarray): Batch of states with shape [batch_size, state_size]
+        - states (list or np.ndarray): Batch of states with shape [batch_size, state_size]
 
         Returns:
         - actions (list): List of selected action indices
         """
-        states = torch.FloatTensor(np.array(states)).to(self.device)  # Shape: [batch_size, state_size]
+        states = np.array(states)  # Convert list of arrays to a single NumPy array
+        states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, state_size]
         self.qnetwork_local.eval()
         with torch.no_grad():
             action_values = self.qnetwork_local(states)  # Shape: [batch_size, action_size]
         self.qnetwork_local.train()
-        
-        batch_size = action_values.size(0)
-        
+
+        batch_size = action_values.shape[0]
+
         # Epsilon-greedy action selection
         if random.random() > self.epsilon:
             # Select the action with the highest Q-value for each state
-            actions = torch.argmax(action_values, dim=1).cpu().numpy()
+            actions = np.argmax(action_values.cpu().numpy(), axis=1)
         else:
             # Select random actions for each state
             actions = np.random.randint(0, self.action_size, size=batch_size)
-        
-        return actions.tolist()  # Ensure it's a list of integers
+
+        return actions.tolist()
 
     def step(self, state, action, reward, next_state, done):
         """
@@ -138,9 +139,11 @@ class Agent:
         states, actions, rewards, next_states, dones = zip(*experiences)
         
         # Convert to tensors and move to device
+        states = np.array(states)  # Convert list of arrays to a single NumPy array
         states = torch.FloatTensor(states).to(self.device)            # Shape: [batch_size, state_size]
         actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)  # Shape: [batch_size, 1]
         rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device) # Shape: [batch_size, 1]
+        next_states = np.array(next_states)  # Convert list of arrays to a single NumPy array
         next_states = torch.FloatTensor(next_states).to(self.device)      # Shape: [batch_size, state_size]
         dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)    # Shape: [batch_size, 1]
         
@@ -172,3 +175,44 @@ class Agent:
             self.epsilon *= self.epsilon_decay
         
         return loss.item()
+
+    def predict_batch(self, states):
+        """
+        Predicts actions and returns both predictions and Q-values for a batch of states.
+        
+        Parameters:
+        - states (list or np.ndarray): Batch of input states
+
+        Returns:
+        - preds (list): List of predicted action indices.
+        - q_values (np.ndarray): Q-values for each action, shape [batch_size, num_actions].
+        """
+        self.qnetwork_local.eval()
+        with torch.no_grad():
+            states = np.array(states)  # Convert list of arrays to a single NumPy array
+            states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, state_size]
+            q_values = self.qnetwork_local(states)                        # Shape: [batch_size, num_actions]
+            q_values = q_values.cpu().numpy()
+        self.qnetwork_local.train()
+        preds = np.argmax(q_values, axis=1)
+        return preds.tolist(), q_values   # Ensure q_values is a 2D numpy array
+
+    def get_action_probabilities(self, state):
+        """
+        Get softmax probabilities for each action given a state.
+        
+        Parameters:
+        - state (torch.Tensor): The current state tensor
+        
+        Returns:
+        - action_probs (torch.Tensor): Probability distribution over actions
+        """
+        with torch.no_grad():
+            # Get action values from the network
+            action_values = self.qnetwork_local(state)
+            
+            # Convert to probabilities using softmax
+            action_probs = torch.softmax(action_values, dim=1)
+            
+        return action_probs
+
