@@ -35,11 +35,40 @@ logger = logging.getLogger(__name__)
 Experience = namedtuple('Experience',
                         field_names=['state', 'action', 'reward', 'next_state', 'done'])
 
+class QNetwork(nn.Module):
+    def __init__(self, state_size, action_size, hidden_layers, sequence_length):
+        super(QNetwork, self).__init__()
+        self.lstm = nn.LSTM(
+            input_size=state_size,
+            hidden_size=hidden_layers[0],
+            num_layers=2,
+            batch_first=True,
+            dropout=0.2
+        )
+        
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(hidden_layers[i], hidden_layers[i+1])
+            for i in range(len(hidden_layers)-1)
+        ])
+        
+        self.output = nn.Linear(hidden_layers[-1], action_size)
+
+    def forward(self, x):
+        # x shape: [batch_size, sequence_length, state_size]
+        lstm_out, _ = self.lstm(x)
+        # Use only the last timestep's output
+        x = lstm_out[:, -1, :]
+        
+        for layer in self.fc_layers:
+            x = F.relu(layer(x))
+        return self.output(x)
+
 class Agent:
     def __init__(
         self,
         state_size,
         action_size,
+        sequence_length=10,
         hidden_layers=[128, 64],
         learning_rate=0.001,
         gamma=0.99,
@@ -68,6 +97,7 @@ class Agent:
         """
         self.state_size = state_size
         self.action_size = action_size  # Ensure action_size matches the number of classes
+        self.sequence_length = sequence_length
         self.hidden_layers = hidden_layers
         self.learning_rate = learning_rate
         self.gamma = gamma
@@ -78,8 +108,8 @@ class Agent:
         self.device = device
         
         # Initialize Q-Network and Target Network
-        self.qnetwork_local = QNetwork(state_size, action_size, hidden_layers).to(self.device)
-        self.qnetwork_target = QNetwork(state_size, action_size, hidden_layers).to(self.device)
+        self.qnetwork_local = QNetwork(state_size, action_size, hidden_layers, sequence_length).to(self.device)
+        self.qnetwork_target = QNetwork(state_size, action_size, hidden_layers, sequence_length).to(self.device)
         self.qnetwork_target.load_state_dict(self.qnetwork_local.state_dict())
         self.qnetwork_target.eval()
         
@@ -97,13 +127,12 @@ class Agent:
         Selects actions for a batch of states using an epsilon-greedy policy.
 
         Parameters:
-        - states (list or np.ndarray): Batch of states with shape [batch_size, state_size]
+        - states (list or np.ndarray): Batch of states with shape [batch_size, sequence_length, state_size]
 
         Returns:
         - actions (list): List of selected action indices
         """
-        states = np.array(states)  # Convert list of arrays to a single NumPy array
-        states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, state_size]
+        states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, sequence_length, state_size]
         self.qnetwork_local.eval()
         with torch.no_grad():
             action_values = self.qnetwork_local(states)  # Shape: [batch_size, action_size]
@@ -157,11 +186,11 @@ class Agent:
         
         # Convert to tensors and move to device
         states = np.array(states)  # Convert list of arrays to a single NumPy array
-        states = torch.FloatTensor(states).to(self.device)            # Shape: [batch_size, state_size]
+        states = torch.FloatTensor(states).to(self.device)            # Shape: [batch_size, sequence_length, state_size]
         actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)  # Shape: [batch_size, 1]
         rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device) # Shape: [batch_size, 1]
         next_states = np.array(next_states)  # Convert list of arrays to a single NumPy array
-        next_states = torch.FloatTensor(next_states).to(self.device)      # Shape: [batch_size, state_size]
+        next_states = torch.FloatTensor(next_states).to(self.device)      # Shape: [batch_size, sequence_length, state_size]
         dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)    # Shape: [batch_size, 1]
         
         # Get max predicted Q values (for next states) from target model
@@ -207,7 +236,7 @@ class Agent:
         self.qnetwork_local.eval()
         with torch.no_grad():
             states = np.array(states)  # Convert list of arrays to a single NumPy array
-            states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, state_size]
+            states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, sequence_length, state_size]
             q_values = self.qnetwork_local(states)                        # Shape: [batch_size, num_actions]
             q_values = q_values.cpu().numpy()
         self.qnetwork_local.train()

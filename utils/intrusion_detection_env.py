@@ -29,16 +29,20 @@ logger = logging.getLogger(__name__)
 
 
 class NetworkClassificationEnv(gym.Env):
-    def __init__(self, data_df, label_dict, batch_size=64, max_steps=1000):
+    def __init__(self, data_df, label_dict, sequence_length=10, batch_size=64, max_steps=1000):
         super(NetworkClassificationEnv, self).__init__()
         self.data_df = data_df.reset_index(drop=True)
         self.label_dict = label_dict
+        self.sequence_length = sequence_length
         self.batch_size = batch_size
         self.max_steps = max_steps
         self.current_step = 0
         self.num_samples = len(self.data_df)
         self.labels = None  # Initialize labels
         self.current_state_index = 0  # Initialize current state index
+        self.current_sequence = None
+        self.sequences = []
+        self._create_sequences(data_df)
         
         # Define action and observation space
         self.action_space = spaces.Discrete(len(label_dict))  # Actions correspond to different attack types
@@ -48,6 +52,12 @@ class NetworkClassificationEnv(gym.Env):
         
         self.reset()
 
+    def _create_sequences(self, data_df):
+        """Create sequences from the dataframe."""
+        for i in range(0, len(data_df) - self.sequence_length + 1):
+            sequence = data_df.iloc[i:i + self.sequence_length]
+            self.sequences.append(sequence)
+
     def reset(self):
         self.current_step = 0
         self.counter = 0  # Counts the number of incorrect actions
@@ -55,20 +65,28 @@ class NetworkClassificationEnv(gym.Env):
         self.done = False
         self.steps_taken = 0
         self.current_state_index = 0  # Reset state index
+        self.current_sequence_idx = 0
         states, labels = self._get_batch()
         self.labels = labels  # Assign labels
         return states, labels
 
     def _get_batch(self):
-        end_index = min(self.current_step + self.batch_size, self.num_samples)
-        batch_df = self.data_df.iloc[self.current_step:end_index]
-        states = batch_df.drop(['Label'], axis=1).values.astype(np.float32)
-        labels = batch_df['Label'].map(self.label_dict).values
-        # Update current_state_index for the first state in the batch
-        if self.current_step < self.num_samples:
-            self.current_state_index = self.current_step
-        self.current_step = end_index
-        return states, labels
+        """Get a batch of sequences."""
+        end_idx = min(self.current_sequence_idx + self.batch_size, len(self.sequences))
+        batch_sequences = self.sequences[self.current_sequence_idx:end_idx]
+        
+        states = []
+        labels = []
+        for sequence in batch_sequences:
+            # Get features excluding Label and Timestamp
+            feature_sequence = sequence.drop(['Label', 'Timestamp', 'Threat'], axis=1).values
+            # Use the label of the last timestep
+            label = sequence.iloc[-1]['Label']
+            states.append(feature_sequence)
+            labels.append(label)
+        
+        self.current_sequence_idx = end_idx
+        return np.array(states), np.array(labels)
 
     def _compute_rewards(self, actions, labels):
         """

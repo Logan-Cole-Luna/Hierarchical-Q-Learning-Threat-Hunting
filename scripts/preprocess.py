@@ -29,21 +29,18 @@ import json
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils import class_weight
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
 from xgboost import XGBClassifier
 from sklearn.metrics import classification_report
 from sklearn.feature_selection import SelectFromModel
 import warnings
+import multiprocessing as mp
+from functools import partial
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 
 def load_and_clean_data(data_dir, csv_files):
     """
-    Loads multiple CSV files, cleans them by handling infinities and NaNs,
-    drops unnecessary columns, removes duplicated header rows, and fixes data types.
-
-    Parameters:
     - data_dir (str): Directory containing the CSV files.
     - csv_files (list): List of CSV file names to load.
 
@@ -51,19 +48,19 @@ def load_and_clean_data(data_dir, csv_files):
     - df_all (pd.DataFrame): Concatenated and cleaned DataFrame.
     """
     chunk_list = []
-    for file in csv_files:
+    for file in tqdm(csv_files, desc="Loading files"):
         file_path = os.path.join(data_dir, file)
         print(f"Loading file: {file_path}")
         try:
             df = pd.read_csv(file_path, low_memory=False)
             print(f"Original shape: {df.shape}")
 
-            # Drop unnecessary columns if they exist
-            columns_to_drop = ['Flow ID', 'Src IP', 'Src Port', 'Dst IP', 'Timestamp']
-            columns_to_drop = [col for col in columns_to_drop if col in df.columns]
-            if columns_to_drop:
-                df.drop(columns=columns_to_drop, inplace=True)
-                print(f"Dropped columns: {columns_to_drop}")
+            # Drop unnecessary columns if they exist, but keep Timestamp
+            ##columns_to_drop = [col for col in columns_to_drop if col in df.columns]
+            #if columns_to_drop:
+            #    df.drop(columns=columns_to_drop, inplace=True)
+            #    print(f"Dropped columns: {columns_to_drop}")
+            
 
             # Replace infinity values with NaN and drop rows with NaNs
             df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -85,9 +82,9 @@ def load_and_clean_data(data_dir, csv_files):
             # Fix data types
             df = fix_data_type(df)
 
-            # Drop any remaining non-numeric columns except 'Label' and 'Threat'
+            # Drop any remaining non-numeric columns except 'Label', 'Threat', and 'Timestamp'
             non_numeric_cols = df.select_dtypes(include=['object']).columns.tolist()
-            columns_to_exclude = ['Label', 'Threat']
+            columns_to_exclude = ['Label', 'Threat', 'Timestamp']  # Added Timestamp to excluded columns
             non_numeric_cols = [col for col in non_numeric_cols if col not in columns_to_exclude]
             if non_numeric_cols:
                 df.drop(columns=non_numeric_cols, inplace=True)
@@ -306,7 +303,16 @@ def remove_highly_correlated_features(df, threshold=0.90):
     """
     print("\nCalculating Pearson correlation matrix...")
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    corr_matrix = df[numeric_cols].corr().abs()
+    
+    # Use tqdm for correlation calculation
+    corr_matrix = pd.DataFrame(index=numeric_cols, columns=numeric_cols)
+    for col1 in tqdm(numeric_cols, desc="Computing correlations"):
+        for col2 in numeric_cols:
+            if col2 >= col1:  # Only compute upper triangle
+                corr = df[col1].corr(df[col2])
+                corr_matrix.loc[col1, col2] = corr
+                corr_matrix.loc[col2, col1] = corr
+    
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 
     to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
@@ -347,47 +353,6 @@ def split_data(df, label_col='Label', threat_col='Threat', test_size=0.2, random
     print(test_df[label_col].value_counts())
     return train_df, test_df
 
-def balance_training_set(train_df, label_col='Label', method='smote', random_state=42, samples_per_class=None):
-    """
-    Balances the training set using the specified method.
-
-    Parameters:
-    - train_df (pd.DataFrame): Training set.
-    - label_col (str): Name of the label column.
-    - method (str): Balancing method ('smote' or 'undersample').
-    - random_state (int): Random seed.
-    - samples_per_class (int or None): If using undersampling with a fixed number of samples per class.
-
-    Returns:
-    - train_df_balanced (pd.DataFrame): Balanced training set.
-    """
-    # Keep track of the Threat column
-    X = train_df.drop([label_col], axis=1)  # Keep 'Threat' column in X
-    y = train_df[label_col]
-
-    print("\nOriginal training set class distribution:")
-    print(y.value_counts())
-
-    if method == 'smote':
-        print("\nApplying SMOTE for oversampling minority classes...")
-        smote = SMOTE(random_state=random_state)
-        X_balanced, y_balanced = smote.fit_resample(X, y)
-    elif method == 'undersample':
-        print("\nApplying Random UnderSampling to balance classes...")
-        rus = RandomUnderSampler(random_state=random_state)
-        X_balanced, y_balanced = rus.fit_resample(X, y)
-    else:
-        raise ValueError("Unsupported balancing method. Choose 'smote' or 'undersample'.")
-
-    # Reconstruct DataFrame with both Label and Threat
-    train_df_balanced = pd.DataFrame(X_balanced, columns=X.columns)
-    train_df_balanced[label_col] = y_balanced
-    
-    print(f"\nBalanced training set shape: {train_df_balanced.shape}")
-    print(f"Balanced training set class distribution:\n{train_df_balanced[label_col].value_counts()}")
-
-    return train_df_balanced
-
 def scale_features(train_df, test_df, feature_cols):
     """
     Scales features using MinMaxScaler fitted on the training set.
@@ -404,8 +369,10 @@ def scale_features(train_df, test_df, feature_cols):
     """
     print("\nScaling features with MinMaxScaler...")
     scaler = MinMaxScaler()
-    train_df[feature_cols] = scaler.fit_transform(train_df[feature_cols])
-    test_df[feature_cols] = scaler.transform(test_df[feature_cols])
+    print("\nScaling training set features...")
+    for col in tqdm(feature_cols, desc="Scaling features"):
+        train_df[col] = scaler.fit_transform(train_df[[col]])
+        test_df[col] = scaler.transform(test_df[[col]])
     print("Feature scaling completed.")
     return train_df, test_df, scaler
 
@@ -491,27 +458,6 @@ def train_xgb_and_select_features(train_df, test_df, feature_cols, y_train, y_te
     print(f"Saved feature importances to '{output_dir}/xgb_feature_importances.csv'.")
 
     return selected_features
-
-def create_train_subset(train_df_balanced, label_col='Label', samples_per_class=10, random_state=42):
-    """
-    Creates a subset of the training data with a fixed number of samples per class.
-
-    Parameters:
-    - train_df_balanced (pd.DataFrame): Balanced training set.
-    - label_col (str): Name of the label column.
-    - samples_per_class (int): Number of samples per class in the subset.
-    - random_state (int): Random seed.
-
-    Returns:
-    - train_subset_df (pd.DataFrame): Subset of the training set.
-    """
-    print(f"\nCreating a training subset with {samples_per_class} samples per class for overfitting test...")
-    train_subset_df = train_df_balanced.groupby(label_col).apply(
-        lambda x: x.sample(n=samples_per_class, random_state=random_state) if len(x) >= samples_per_class else x
-    ).reset_index(drop=True)
-    print(f"Training subset shape: {train_subset_df.shape}")
-    print(f"Training subset distribution:\n{train_subset_df[label_col].value_counts()}")
-    return train_subset_df
 
 def save_processed_data(train_df, test_df, train_subset_df, feature_cols, selected_features, label_dict, class_weights, output_dir='processed_data'):
     """
@@ -609,6 +555,68 @@ def create_hierarchical_datasets(train_df_balanced, test_df, feature_cols, outpu
     multi_label_dict = encode_labels(train_multi, test_multi, label_col='Label')
     save_label_dict_and_class_weights(multi_label_dict, multi_class_weights, multi_class_output_dir)
 
+def sort_by_timestamp(df):
+    """Sort dataframe by timestamp to maintain temporal order."""
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+    return df.sort_values('Timestamp').reset_index(drop=True)
+
+def create_time_features(df):
+    """Create additional time-based features."""
+    df['hour'] = df['Timestamp'].dt.hour
+    df['minute'] = df['Timestamp'].dt.minute
+    df['day_of_week'] = df['Timestamp'].dt.dayofweek
+    df['time_of_day'] = df['hour'] * 60 + df['minute']
+    return df
+
+def create_sequences(df, sequence_length=10, stride=1):
+    """Create sequences of data for temporal analysis."""
+    print("\nCreating sequences...")
+    total_sequences = (len(df) - sequence_length + 1) // stride
+    sequences = []
+    labels = []
+    timestamps = []
+    
+    # Use tqdm for sequence creation
+    with tqdm(total=total_sequences, desc="Creating sequences") as pbar:
+        for i in range(0, len(df) - sequence_length + 1, stride):
+            sequence = df.iloc[i:i + sequence_length]
+            feature_sequence = sequence.drop(['Label', 'Threat'], axis=1).values
+            timestamp = sequence.iloc[-1]['Timestamp']
+            label = sequence.iloc[-1]['Label']
+            
+            sequences.append(feature_sequence)
+            labels.append(label)
+            timestamps.append(timestamp)
+            pbar.update(1)
+    
+    print("\nSequence creation completed.")
+    return np.array(sequences), np.array(labels), np.array(timestamps)
+
+def track_feature_changes(original_columns, final_columns):
+    """
+    Track which features were kept and dropped during preprocessing.
+    
+    Parameters:
+    - original_columns (list): Original feature columns
+    - final_columns (list): Final feature columns after preprocessing
+    
+    Returns:
+    - dict: Dictionary containing kept and dropped features
+    """
+    # Remove non-feature columns from comparison
+    non_feature_cols = ['Label', 'Threat', 'Timestamp', 'hour', 'minute', 'day_of_week', 'time_of_day']
+    original_features = [col for col in original_columns if col not in non_feature_cols]
+    final_features = [col for col in final_columns if col not in non_feature_cols]
+    
+    # Find kept and dropped features
+    kept_features = set(final_features)
+    dropped_features = set(original_features) - kept_features
+    
+    return {
+        'kept': sorted(list(kept_features)),
+        'dropped': sorted(list(dropped_features))
+    }
+
 def main():
     # Define parameters
     data_dir = "data/"
@@ -628,13 +636,20 @@ def main():
     threat_col = "Threat"
     test_size = 0.2
     random_state = 42
-    balancing_method = 'undersample'  # Options: 'smote', 'undersample'
-    samples_per_class_subset = 10  # Number of samples per class in train_subset_df
-    feature_importance_threshold = 0.01  # Threshold for feature selection
+    feature_importance_threshold = 0.01
 
     # Load and clean data
     df_all = load_and_clean_data(data_dir, csv_files)
 
+    # Store original columns for comparison AFTER loading data
+    original_columns = df_all.columns.tolist()
+
+    # Sort by timestamp (critical for temporal order)
+    df_all = sort_by_timestamp(df_all)
+    
+    # Create time features
+    df_all = create_time_features(df_all)
+    
     # Transform labels
     df_all = transform_labels(df_all)
 
@@ -644,35 +659,64 @@ def main():
     # Remove highly correlated features
     df_all = remove_highly_correlated_features(df_all, threshold=0.90)
 
-    # Split into train and test sets
-    train_df, test_df = split_data(df_all, label_col=label_col, threat_col=threat_col, test_size=test_size, random_state=random_state)
-    del df_all  # Free up memory
-
+    # Create sequences before train/test split to maintain temporal continuity
+    sequence_length = 10
+    stride = 5
+    X_sequences, y_sequences, timestamps = create_sequences(df_all, sequence_length, stride)
+    
+    # Split sequences into train/test maintaining temporal order
+    split_idx = int(len(X_sequences) * 0.8)
+    X_train, X_test = X_sequences[:split_idx], X_sequences[split_idx:]
+    y_train, y_test = y_sequences[:split_idx], y_sequences[split_idx:]
+    train_timestamps, test_timestamps = timestamps[:split_idx], timestamps[split_idx:]
+    
+    # Convert sequences back to DataFrames with timestamps
+    train_df = pd.DataFrame({
+        'Label': y_train,
+        'Timestamp': train_timestamps
+    })
+    
+    test_df = pd.DataFrame({
+        'Label': y_test,
+        'Timestamp': test_timestamps
+    })
+    
+    # Add sequence features to DataFrames
+    for i in range(X_train.shape[2]):
+        train_df[f'feature_{i}'] = X_train[:, -1, i]
+        test_df[f'feature_{i}'] = X_test[:, -1, i]
+    
     # Feature columns
-    feature_cols = [col for col in train_df.columns if col not in [label_col, threat_col]]
-
-    # Balance the training set
-    train_df_balanced = balance_training_set(
-        train_df,
-        label_col=label_col,
-        method=balancing_method,
-        random_state=random_state
-    )
-    del train_df  # Free up memory
+    feature_cols = [col for col in train_df.columns if col not in [label_col, threat_col, 'Timestamp']]
 
     # Scale features
-    train_df_balanced, test_df, scaler = scale_features(train_df_balanced, test_df, feature_cols)
+    train_df, test_df, scaler = scale_features(train_df, test_df, feature_cols)
 
-    # Create hierarchical datasets with subsets
+    # Create hierarchical datasets
     create_hierarchical_datasets(
-        train_df_balanced=train_df_balanced,
+        train_df_balanced=train_df,  # Note: Using unbalanced data
         test_df=test_df,
         feature_cols=feature_cols,
-        output_dir='processed_data',
-        subset_size=100  # Adjust the subset size as needed
+        output_dir='processed_data'
     )
+
+    # Track feature changes
+    final_columns = train_df.columns.tolist()
+    feature_changes = track_feature_changes(original_columns, final_columns)
+    
+    # Print feature change summary
+    print("\nFeature Processing Summary:")
+    print(f"\nTotal original features: {len(original_columns)}")
+    print(f"Total final features: {len(final_columns)}")
+    print(f"\nKept {len(feature_changes['kept'])} features:")
+    for feature in feature_changes['kept']:
+        print(f"  - {feature}")
+    print(f"\nDropped {len(feature_changes['dropped'])} features:")
+    for feature in feature_changes['dropped']:
+        print(f"  - {feature}")
 
     print("\nPreprocessing completed successfully.")
 
 if __name__ == "__main__":
     main()
+
