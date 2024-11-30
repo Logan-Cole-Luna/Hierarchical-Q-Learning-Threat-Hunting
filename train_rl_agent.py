@@ -36,30 +36,37 @@ import time
 from collections import Counter
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def load_and_preprocess_data():
-    # Load data
-    df = pd.read_csv('processed_data/multi_class_classification/train_multi_class.csv')
-    
-    # Ensure balanced split
-    X = df.drop('Label', axis=1)
-    y = df['Label']
-    
-    # Stratify by Label to maintain class distribution
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    # Debug prints
-    logger.info(f"Training set shape: {X_train.shape}")
-    logger.info(f"Test set shape: {X_test.shape}")
-    logger.info(f"Training labels distribution:\n{y_train.value_counts()}")
-    logger.info(f"Test labels distribution:\n{y_test.value_counts()}")
-    
+    # Load the preprocessed training and testing data
+    train_data = pd.read_csv('processed_data/multi_class_classification/train_multi_class.csv')
+    test_data = pd.read_csv('processed_data/multi_class_classification/test_multi_class.csv')
+
+    # Extract features and labels
+    feature_cols = [col for col in train_data.columns if col not in ['Label', 'Threat', 'Timestamp']]
+    X_train = train_data[feature_cols].values
+    y_train = train_data['Label'].values
+    X_test = test_data[feature_cols].values
+    y_test = test_data['Label'].values
+
+    # Remove the reshaping code since the data is not in sequence format
+    # sequence_length = 10  # Set the sequence length used during preprocessing
+    # num_features = X_train.shape[1] // sequence_length
+    # X_train = X_train.reshape(-1, sequence_length, num_features)
+    # X_test = X_test.reshape(-1, sequence_length, num_features)
+
+    # After loading data
+    print(f"[DEBUG] Loaded data shapes:")
+    print(f"X_train shape: {X_train.shape}")
+    print(f"X_test shape: {X_test.shape}")
+    print(f"y_train shape: {y_train.shape}")
+    print(f"y_test shape: {y_test.shape}")
+
     return X_train, X_test, y_train, y_test
 
 def get_print_interval(num_episodes):
@@ -80,8 +87,8 @@ def main():
         os.makedirs("models", exist_ok=True)
 
         # Define ALL paths at the start
-        multi_train_path = "processed_data/multi_class_classification/train_multi_class_subset.csv"
-        multi_test_path = "processed_data/multi_class_classification/train_multi_class_subset.csv"
+        multi_train_path = "processed_data/multi_class_classification/train_multi_class.csv"
+        multi_test_path = "processed_data/multi_class_classification/test_multi_class.csv"  # Changed from train to test
         label_dict_path = "processed_data/multi_class_classification/label_dict.json"  # Added this line
         evaluation_save_path = os.path.abspath('results/multi_class_classification')
 
@@ -103,23 +110,71 @@ def main():
         with open(label_dict_path, "r") as infile:
             label_dict = json.load(infile)
         
+        # Create inverse label dictionary
+        inv_label_dict = {v: k for k, v in label_dict.items()}
+        
         # Define feature columns
         multi_feature_cols = [col for col in multi_train_df.columns if col not in ['Label']]
         
         # Initialize environment and agent for training
         env = NetworkClassificationEnv(multi_train_df, label_dict)
-        state_size = len(multi_feature_cols)  # Number of feature columns
+        state_size = 44  # Updated to match the number of features
         action_size = len(label_dict)         # Number of unique actions/classes
 
+        # Load and preprocess data
+        X_train, X_test, y_train, y_test = load_and_preprocess_data()
+
+        # *** Begin Changes ***
+        # Map label strings to integers using label_dict
+        y_train = [label_dict.get(label, -1) for label in y_train]
+        y_test = [label_dict.get(label, -1) for label in y_test]
+        
+        # Check for any unmapped labels
+        if -1 in y_train or -1 in y_test:
+            logger.error("Found labels that are not in label_dict. Please check your label mappings.")
+            return
+
+        # Convert labels to numpy arrays
+        y_train = np.array(y_train)
+        y_test = np.array(y_test)
+
+        # Print shapes and unique labels after mapping
+        print(f"[DEBUG] After mapping labels:")
+        print(f"y_train.shape = {y_train.shape}")
+        print(f"y_test.shape = {y_test.shape}")
+        print(f"Unique y_train labels: {np.unique(y_train)}")
+        print(f"Unique y_test labels: {np.unique(y_test)}")
+
+        # After mapping labels
+        logger.debug(f"Label dict: {label_dict}")
+        logger.debug(f"Unique y_train labels: {np.unique(y_train)}")
+        logger.debug(f"Unique y_test labels: {np.unique(y_test)}")
+
+        # Assertions to ensure labels are correctly encoded
+        assert all(label in label_dict.values() for label in y_train), "Some training labels are missing from label_dict."
+        assert all(label in label_dict.values() for label in y_test), "Some testing labels are missing from label_dict."
+        # *** End Changes ***
+
+        # Determine the actual number of features after preprocessing
+        print(f"[DEBUG] Before accessing X_train.shape[2]: X_train.shape = {X_train.shape}")
+        state_size = X_train.shape[1]  # Changed from X_train.shape[2] to X_train.shape[1]
+        print(f"State size (number of input features): {state_size}")
+
+        # Initialize agent and trainer
         agent = Agent(state_size=state_size, action_size=action_size)
         trainer = Trainer(env, agent)
     
         # Start training
-        num_episodes = 150
+        num_episodes = 5
         print_interval = get_print_interval(num_episodes)
         logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
         
-        reward_history, loss_history = trainer.train(num_episodes, print_interval=print_interval)
+        reward_history, loss_history = trainer.train(
+            num_episodes=num_episodes,
+            print_interval=print_interval,
+            X_test=X_test,
+            y_test=y_test
+        )
     
         # Ensure all classes are included in the dataset
         class_counts = Counter(multi_train_df['Label'])
@@ -150,15 +205,11 @@ def main():
         logger.info(f"Saving evaluation results to: {eval_save_path}")
         
         # Run evaluation
+        logger.info("Starting evaluation of RL Agent...")
         metrics = evaluate_rl_agent(
-            agent=agent,
-            env=eval_env,
-            label_dict=label_dict,
-            multi_test_df=multi_test_df,
-            batch_size=100,
-            save_confusion_matrix=True,
-            save_roc_curves=True,
-            save_path=eval_save_path
+            y_true=y_test,  # y_test should be integer-encoded
+            y_pred=agent.predict(X_test),  # Ensure predictions are also integer-encoded
+            label_dict_path=label_dict_path  # Provide the path to label_dict.json
         )
 
         # Set agent back to training mode
@@ -189,7 +240,7 @@ def main():
         logger.info(f"RL Model saved to {rl_model_path}")
         
     except Exception as e:
-        logger.exception("An error occurred during RL agent training.")
+        logger.error(f"An error occurred during RL agent training.\n{traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()

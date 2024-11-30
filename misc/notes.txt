@@ -134,3 +134,164 @@ Updates to code:
 	
 
 
+
+
+
+Feature scaling completed.
+
+Creating hierarchical datasets for binary and multi-class classification...
+Saved binary classification datasets to 'processed_data\binary_classification'.
+Saved binary classification subset to 'processed_data\binary_classification/train_binary_subset.csv'.
+
+Computing class weights for 'Threat'...
+Class Weights (Threat): {'Benign': np.float64(0.6167787297533327), 'Malicious': np.float64(2.640800816450611)}
+
+Encoding labels for 'Threat'...
+Label Dictionary (Threat): {'Benign': 0, 'Malicious': 1}
+Saved label dictionary to 'processed_data\binary_classification/label_dict.json'.
+Saved class weights to 'processed_data\binary_classification/class_weights.json'.
+Saved multi-class classification datasets to 'processed_data\multi_class_classification'.
+Saved multi-class classification subset to 'processed_data\multi_class_classification/train_multi_class_subset.csv'.
+
+Computing class weights for 'Label'...
+Class Weights (Label): {'Brute-force': np.float64(2.0209320695102684), 'DDoS attack': np.float64(0.6051419921474637), 'DoS attack': np.float64(1.1727810289241676)}
+
+Encoding labels for 'Label'...
+Label Dictionary (Label): {'Brute-force': 0, 'DDoS attack': 1, 'DoS attack': 2}
+Saved label dictionary to 'processed_data\multi_class_classification/label_dict.json'.
+Saved class weights to 'processed_data\multi_class_classification/class_weights.json'.
+
+Feature Processing Summary:
+
+Total original features: 81
+Total final features: 48
+
+Kept 45 features:
+  - feature_0
+  - feature_1
+  - feature_10
+  - feature_11
+  - feature_12
+  - feature_13
+  - feature_14
+  - feature_15
+  - feature_16
+  - feature_17
+  - feature_18
+  - feature_19
+  - feature_2
+  - feature_20
+  - feature_21
+  - feature_22
+  - feature_23
+  - feature_24
+  - feature_25
+  - feature_26
+  - feature_27
+  - feature_28
+  - feature_29
+  - feature_3
+  - feature_30
+  - feature_31
+  - feature_32
+  - feature_33
+  - feature_34
+  - feature_35
+  - feature_36
+  - feature_37
+  - feature_38
+  - feature_39
+  - feature_4
+  - feature_40
+  - feature_41
+  - feature_42
+  - feature_43
+  - feature_44
+  - feature_5
+  - feature_6
+  - feature_7
+  - feature_8
+  - feature_9
+
+Dropped 79 features:
+  - ACK Flag Cnt
+  - Active Max
+  - Active Mean
+  - Active Min
+  - Active Std
+  - Bwd Blk Rate Avg
+  - Bwd Byts/b Avg
+  - Bwd Header Len
+  - Bwd IAT Max
+  - Bwd IAT Mean
+  - Bwd IAT Min
+  - Bwd IAT Std
+  - Bwd IAT Tot
+  - Bwd PSH Flags
+  - Bwd Pkt Len Max
+  - Bwd Pkt Len Mean
+  - Bwd Pkt Len Min
+  - Bwd Pkt Len Std
+  - Bwd Pkts/b Avg
+  - Bwd Pkts/s
+  - Bwd Seg Size Avg
+  - Bwd URG Flags
+  - CWE Flag Count
+  - Down/Up Ratio
+  - Dst Port
+  - ECE Flag Cnt
+  - FIN Flag Cnt
+  - Flow Byts/s
+  - Flow Duration
+  - Flow IAT Max
+  - Flow IAT Mean
+  - Flow IAT Min
+  - Flow IAT Std
+  - Flow Pkts/s
+  - Fwd Act Data Pkts
+  - Fwd Blk Rate Avg
+  - Fwd Byts/b Avg
+  - Fwd Header Len
+  - Fwd IAT Max
+  - Fwd IAT Mean
+  - Fwd IAT Min
+  - Fwd IAT Std
+  - Fwd IAT Tot
+  - Fwd PSH Flags
+  - Fwd Pkt Len Max
+  - Fwd Pkt Len Mean
+  - Fwd Pkt Len Min
+  - Fwd Pkt Len Std
+  - Fwd Pkts/b Avg
+  - Fwd Pkts/s
+  - Fwd Seg Size Avg
+  - Fwd Seg Size Min
+  - Fwd URG Flags
+  - Idle Max
+  - Idle Mean
+  - Idle Min
+  - Idle Std
+  - Init Bwd Win Byts
+  - Init Fwd Win Byts
+  - PSH Flag Cnt
+  - Pkt Len Max
+  - Pkt Len Mean
+  - Pkt Len Min
+  - Pkt Len Std
+  - Pkt Len Var
+  - Pkt Size Avg
+  - Protocol
+  - RST Flag Cnt
+  - SYN Flag Cnt
+  - Src Port
+  - Subflow Bwd Byts
+  - Subflow Bwd Pkts
+  - Subflow Fwd Byts
+  - Subflow Fwd Pkts
+  - Tot Bwd Pkts
+  - Tot Fwd Pkts
+  - TotLen Bwd Pkts
+  - TotLen Fwd Pkts
+  - URG Flag Cnt
+
+Preprocessing completed successfully.

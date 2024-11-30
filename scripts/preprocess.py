@@ -263,6 +263,9 @@ def remove_constant_and_duplicate_columns(df):
     Returns:
     - df (pd.DataFrame): DataFrame with constant and duplicate columns removed.
     """
+    # Backup the dataframe before modifications
+    df_backup = df.copy()
+    
     # Remove constant columns (excluding 'Label' and 'Threat')
     constant_columns = [col for col in df.columns if df[col].nunique() <= 1 and col not in ['Label', 'Threat']]
     if constant_columns:
@@ -288,6 +291,14 @@ def remove_constant_and_duplicate_columns(df):
         print("No duplicate columns to drop.")
 
     print(f"DataFrame shape after removing constant and duplicate columns: {df.shape}")
+    
+    # Check if any features are remaining after removal
+    remaining_features = [col for col in df.columns if col not in ['Label', 'Threat', 'Timestamp']]
+    if len(remaining_features) == 0:
+        print("No features remaining after removing constants and duplicates. Restoring previous state.")
+        df = df_backup  # Restore from backup
+    else:
+        print(f"{len(remaining_features)} features remaining after removal of constants and duplicates.")
     return df
 
 def remove_highly_correlated_features(df, threshold=0.90):
@@ -301,6 +312,9 @@ def remove_highly_correlated_features(df, threshold=0.90):
     Returns:
     - df (pd.DataFrame): DataFrame with highly correlated features removed.
     """
+    # Backup the dataframe before modifications
+    df_backup = df.copy()
+    
     print("\nCalculating Pearson correlation matrix...")
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     
@@ -324,6 +338,21 @@ def remove_highly_correlated_features(df, threshold=0.90):
         print("No highly correlated columns to drop.")
 
     print(f"DataFrame shape after removing highly correlated features: {df.shape}")
+    
+    # Check if any features are remaining after removal
+    remaining_features = [col for col in df.columns if col not in ['Label', 'Threat', 'Timestamp']]
+    if len(remaining_features) == 0:
+        print("No features remaining after removing highly correlated features. Adjusting threshold.")
+        # Adjust the threshold to be higher to keep more features
+        if threshold < 0.99:
+            new_threshold = threshold + 0.05
+            print(f"Trying with a higher threshold: {new_threshold}")
+            return remove_highly_correlated_features(df_backup, threshold=new_threshold)
+        else:
+            print("Threshold too high. Restoring previous state without removing features.")
+            df = df_backup  # Restore from backup
+    else:
+        print(f"{len(remaining_features)} features remaining after removing highly correlated features.")
     return df
 
 def split_data(df, label_col='Label', threat_col='Threat', test_size=0.2, random_state=42):
@@ -538,9 +567,9 @@ def create_hierarchical_datasets(train_df_balanced, test_df, feature_cols, outpu
     train_malicious = train_df_balanced[train_df_balanced['Threat'] == malicious_label]
     test_malicious = test_df[test_df['Threat'] == malicious_label]
 
-    # Save multi-class classification datasets
-    train_multi = train_malicious[['Label'] + feature_cols]
-    test_multi = test_malicious[['Label'] + feature_cols]
+    # Save multi-class classification datasets including 'Threat' and 'Timestamp'
+    train_multi = train_malicious[['Label', 'Threat', 'Timestamp'] + feature_cols]
+    test_multi = test_malicious[['Label', 'Threat', 'Timestamp'] + feature_cols]
     train_multi.to_csv(os.path.join(multi_class_output_dir, 'train_multi_class.csv'), index=False)
     test_multi.to_csv(os.path.join(multi_class_output_dir, 'test_multi_class.csv'), index=False)
     print(f"Saved multi-class classification datasets to '{multi_class_output_dir}'.")
@@ -568,29 +597,59 @@ def create_time_features(df):
     df['time_of_day'] = df['hour'] * 60 + df['minute']
     return df
 
-def create_sequences(df, sequence_length=10, stride=1):
-    """Create sequences of data for temporal analysis."""
-    print("\nCreating sequences...")
-    total_sequences = (len(df) - sequence_length + 1) // stride
+def create_sequences_chunk(args):
+    df, start, end, sequence_length, stride = args
     sequences = []
     labels = []
+    threats = []
     timestamps = []
+    for i in range(start, end, stride):  # Use stride in loop
+        if i + sequence_length > len(df):
+            break
+        sequence = df.iloc[i:i + sequence_length]
+        feature_sequence = sequence.drop(['Label', 'Threat'], axis=1).values
+        timestamp = sequence.iloc[-1]['Timestamp']
+        label = sequence.iloc[-1]['Label']
+        threat = sequence.iloc[-1]['Threat']  # Extract 'Threat' label
+        
+        sequences.append(feature_sequence)
+        labels.append(label)
+        threats.append(threat)
+        timestamps.append(timestamp)
+    return sequences, labels, threats, timestamps  # Return 'Threat' alongside labels
+
+def create_sequences(df, sequence_length=10, stride=10):  # Increased stride to 10
+    """Create sequences of data for temporal analysis using multiprocessing."""
+    print("\nCreating sequences...")
     
-    # Use tqdm for sequence creation
-    with tqdm(total=total_sequences, desc="Creating sequences") as pbar:
-        for i in range(0, len(df) - sequence_length + 1, stride):
-            sequence = df.iloc[i:i + sequence_length]
-            feature_sequence = sequence.drop(['Label', 'Threat'], axis=1).values
-            timestamp = sequence.iloc[-1]['Timestamp']
-            label = sequence.iloc[-1]['Label']
-            
-            sequences.append(feature_sequence)
-            labels.append(label)
-            timestamps.append(timestamp)
+    total_sequences = (len(df) - sequence_length + 1)
+    num_processes = 5  # Reduced number of processes
+    pool = mp.Pool(processes=num_processes)
+    
+    chunk_size = total_sequences // num_processes
+    args = [
+        (df, i, min(i + chunk_size, len(df)), sequence_length, stride)
+        for i in range(0, len(df) - sequence_length + 1, chunk_size)
+    ]
+    
+    results = []
+    with tqdm(total=len(args), desc="Creating sequences") as pbar:
+        for result in pool.imap(create_sequences_chunk, args):
+            results.append(result)
             pbar.update(1)
     
+    pool.close()
+    pool.join()
+    
+    # Combine results
+    sequences, labels, threats, timestamps = zip(*results)  # Unpack 'Threat' labels
+    sequences = [item for sublist in sequences for item in sublist]
+    labels = [item for sublist in labels for item in sublist]
+    threats = [item for sublist in threats for item in sublist]  # Flatten 'Threat' labels
+    timestamps = [item for sublist in timestamps for item in sublist]
+    
     print("\nSequence creation completed.")
-    return np.array(sequences), np.array(labels), np.array(timestamps)
+    return np.array(sequences), np.array(labels), np.array(threats), np.array(timestamps)  # Return 'Threat' array
 
 def track_feature_changes(original_columns, final_columns):
     """
@@ -616,6 +675,25 @@ def track_feature_changes(original_columns, final_columns):
         'kept': sorted(list(kept_features)),
         'dropped': sorted(list(dropped_features))
     }
+
+def encode_labels_unified(df, label_col='Label'):
+    """
+    Encodes labels into integers using a unified label dictionary.
+    
+    Parameters:
+    - df (pd.DataFrame): DataFrame containing labels.
+    - label_col (str): The column name containing labels.
+    
+    Returns:
+    - label_dict (dict): Mapping from label names to integers.
+    - df (pd.DataFrame): DataFrame with encoded labels.
+    """
+    print(f"\nEncoding labels for '{label_col}' using unified label dictionary...")
+    classes = np.unique(df[label_col])
+    label_dict = {label: idx for idx, label in enumerate(classes)}
+    print(f"Unified Label Dictionary ({label_col}): {label_dict}")
+    df[label_col] = df[label_col].map(label_dict)
+    return label_dict, df
 
 def main():
     # Define parameters
@@ -644,6 +722,9 @@ def main():
     # Store original columns for comparison AFTER loading data
     original_columns = df_all.columns.tolist()
 
+    # Store original feature columns before any processing
+    original_feature_cols = [col for col in df_all.columns if col not in ['Label', 'Threat', 'Timestamp']]
+
     # Sort by timestamp (critical for temporal order)
     df_all = sort_by_timestamp(df_all)
     
@@ -653,44 +734,63 @@ def main():
     # Transform labels
     df_all = transform_labels(df_all)
 
+    # *** Begin Changes ***
+    # Encode 'Label' column using a unified label dictionary before splitting
+    label_dict, df_all = encode_labels_unified(df_all, label_col='Label')
+    
+    # Save the unified label dictionary
+    multi_class_output_dir = os.path.join('processed_data', 'multi_class_classification')
+    os.makedirs(multi_class_output_dir, exist_ok=True)
+    with open(os.path.join(multi_class_output_dir, 'label_dict.json'), 'w') as f:
+        json.dump(label_dict, f)
+    print("Saved unified label dictionary to 'label_dict.json'.")
+    # *** End Changes ***
+
     # Remove constant and duplicate columns
     df_all = remove_constant_and_duplicate_columns(df_all)
 
     # Remove highly correlated features
     df_all = remove_highly_correlated_features(df_all, threshold=0.90)
-
+    
+    # Store original feature columns after feature selection
+    original_feature_cols = [col for col in df_all.columns if col not in ['Label', 'Threat', 'Timestamp']]
+    
     # Create sequences before train/test split to maintain temporal continuity
     sequence_length = 10
-    stride = 5
-    X_sequences, y_sequences, timestamps = create_sequences(df_all, sequence_length, stride)
+    stride = 10  # Set stride to 10
+    X_sequences, y_sequences, threats, timestamps = create_sequences(df_all, sequence_length, stride)
     
     # Split sequences into train/test maintaining temporal order
     split_idx = int(len(X_sequences) * 0.8)
     X_train, X_test = X_sequences[:split_idx], X_sequences[split_idx:]
     y_train, y_test = y_sequences[:split_idx], y_sequences[split_idx:]
+    train_threats, test_threats = threats[:split_idx], threats[split_idx:]
     train_timestamps, test_timestamps = timestamps[:split_idx], timestamps[split_idx:]
     
-    # Convert sequences back to DataFrames with timestamps
+    # Convert sequences back to DataFrames with timestamps and threats
     train_df = pd.DataFrame({
         'Label': y_train,
+        'Threat': train_threats,
         'Timestamp': train_timestamps
     })
     
     test_df = pd.DataFrame({
         'Label': y_test,
+        'Threat': test_threats,
         'Timestamp': test_timestamps
     })
     
-    # Add sequence features to DataFrames
-    for i in range(X_train.shape[2]):
-        train_df[f'feature_{i}'] = X_train[:, -1, i]
-        test_df[f'feature_{i}'] = X_test[:, -1, i]
+    # Add sequence features to DataFrames using original feature names
+    for i, feature_name in enumerate(original_feature_cols):
+        train_df[feature_name] = X_train[:, -1, i]
+        test_df[feature_name] = X_test[:, -1, i]
     
     # Feature columns
     feature_cols = [col for col in train_df.columns if col not in [label_col, threat_col, 'Timestamp']]
 
     # Scale features
     train_df, test_df, scaler = scale_features(train_df, test_df, feature_cols)
+
 
     # Create hierarchical datasets
     create_hierarchical_datasets(
@@ -716,6 +816,10 @@ def main():
         print(f"  - {feature}")
 
     print("\nPreprocessing completed successfully.")
+
+if __name__ == "__main__":
+    main()
+
 
 if __name__ == "__main__":
     main()

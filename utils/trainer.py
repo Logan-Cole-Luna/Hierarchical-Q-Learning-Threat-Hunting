@@ -18,6 +18,7 @@ import numpy as np
 import logging
 from scipy.special import softmax
 from collections import deque
+from utils.evaluation import evaluate_rl_agent
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +34,20 @@ class Trainer:
         self.env = env
         self.agent = agent
 
-    def train(self, num_episodes, print_interval=None):
+    def train(self, num_episodes, print_interval, X_test, y_test):
         """
-        Train the agent for the specified number of episodes.
-        
-        Args:
-            num_episodes (int): Number of episodes to train for
-            print_interval (int): How often to print progress (every N episodes)
-        """
-        if print_interval is None:
-            print_interval = max(1, num_episodes // 10)
+        Trains the RL agent for a specified number of episodes.
 
+        Parameters:
+        - num_episodes (int): Number of training episodes.
+        - print_interval (int): Interval at which to print training status.
+        - X_test (np.ndarray): Test set features for evaluation.
+        - y_test (np.ndarray): Test set labels for evaluation.
+
+        Returns:
+        - reward_history (list): History of rewards per episode.
+        - loss_history (list): History of losses per training step.
+        """
         reward_history = []
         loss_history = []
         recent_rewards = deque(maxlen=10)  # Track last 10 rewards for averaging
@@ -76,10 +80,13 @@ class Trainer:
 
             # Print progress at intervals
             if episode % print_interval == 0:
-                logger.info(f"Episode {episode}/{num_episodes} - "
-                          f"Total Reward: {total_reward:.2f} - "
-                          f"Average Reward (last 10): {avg_reward:.2f} - "
-                          f"Average Loss: {avg_loss:.4f}")
+                y_pred = self.agent.predict(X_test)  # Obtain predictions using the Agent's predict method
+                metrics = evaluate_rl_agent(
+                    y_true=y_test,                # Ensure y_test is integer-encoded
+                    y_pred=y_pred,                # Predicted labels from Agent
+                    label_dict_path="processed_data/multi_class_classification/label_dict.json"  # Path to label_dict.json
+                )
+                logger.info(f"Episode {episode}/{num_episodes} - Metrics: {metrics}")
 
         return reward_history, loss_history
 

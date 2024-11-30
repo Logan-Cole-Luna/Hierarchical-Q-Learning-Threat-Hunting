@@ -77,7 +77,7 @@ class Agent:
         epsilon_decay=0.995,
         batch_size=64,
         memory_size=10000,
-        device=torch.device("cpu")
+        device=torch.device("cpu")  # Ensure device is stored
     ):
         """
         Initializes the Agent with given parameters.
@@ -123,32 +123,52 @@ class Agent:
         self.target_update_freq = 1000  # Update target network every 1000 steps
 
     def act(self, states):
-        """
-        Selects actions for a batch of states using an epsilon-greedy policy.
+        # Ensure 'states' is a PyTorch tensor
+        if isinstance(states, np.ndarray):
+            states = torch.from_numpy(states).float()
+        elif isinstance(states, pd.DataFrame):
+            states = torch.tensor(states.values).float()
 
-        Parameters:
-        - states (list or np.ndarray): Batch of states with shape [batch_size, sequence_length, state_size]
+        # Reshape 'states' to (batch_size, sequence_length, state_size)
+        if len(states.shape) == 1:
+            # Single state vector
+            states = states.unsqueeze(0).unsqueeze(0)  # Shape: (1, 1, state_size)
+        elif len(states.shape) == 2:
+            # Batch of state vectors without sequence dimension
+            states = states.unsqueeze(1)  # Shape: (batch_size, 1, state_size)
+        # If 'states' already has 3 dimensions, do nothing
 
-        Returns:
-        - actions (list): List of selected action indices
-        """
-        states = torch.FloatTensor(states).to(self.device)  # Shape: [batch_size, sequence_length, state_size]
-        self.qnetwork_local.eval()
+        # Check if 'states' has the correct feature size
+        if states.shape[-1] != self.state_size:
+            raise ValueError(f"Input states have incorrect feature size. Expected {self.state_size}, got {states.shape[-1]}")
+
+        # Move 'states' to the appropriate device
+        states = states.to(self.device)
+
+        # Get action values from the local Q-network
         with torch.no_grad():
-            action_values = self.qnetwork_local(states)  # Shape: [batch_size, action_size]
-        self.qnetwork_local.train()
+            action_values = self.qnetwork_local(states)
+            # action_values shape: [batch_size, action_size]
 
-        batch_size = action_values.shape[0]
+        # Select actions (epsilon-greedy policy)
+        batch_size = states.shape[0]
+        actions = np.zeros(batch_size, dtype=int)
 
-        # Epsilon-greedy action selection
-        if random.random() > self.epsilon:
-            # Select the action with the highest Q-value for each state
-            actions = np.argmax(action_values.cpu().numpy(), axis=1)
-        else:
-            # Select random actions for each state
-            actions = np.random.randint(0, self.action_size, size=batch_size)
+        # Generate random numbers for epsilon decisions
+        random_numbers = np.random.rand(batch_size)
+        exploit_indices = random_numbers > self.epsilon
+        explore_indices = random_numbers <= self.epsilon
 
-        return actions.tolist()
+        # Exploitation: choose the action with the highest Q-value
+        if exploit_indices.any():
+            exploit_actions = torch.argmax(action_values[exploit_indices], dim=1).cpu().numpy()
+            actions[exploit_indices] = exploit_actions
+
+        # Exploration: choose random actions
+        if explore_indices.any():
+            actions[explore_indices] = np.random.choice(self.action_size, size=explore_indices.sum())
+
+        return actions
 
     def step(self, state, action, reward, next_state, done):
         """
@@ -261,4 +281,21 @@ class Agent:
             action_probs = torch.softmax(action_values, dim=1)
             
         return action_probs
+
+    def predict(self, X):
+        """
+        Predict labels for the given input data X.
+
+        Parameters:
+        - X (np.ndarray): Input features array.
+
+        Returns:
+        - predictions (np.ndarray): Predicted labels.
+        """
+        self.model.eval()  # Set the model to evaluation mode
+        with torch.no_grad():
+            inputs = torch.from_numpy(X).float()
+            outputs = self.model(inputs)
+            _, predicted = torch.max(outputs, 1)
+        return predicted.numpy()
 

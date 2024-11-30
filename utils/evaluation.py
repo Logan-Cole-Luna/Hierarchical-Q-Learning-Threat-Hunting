@@ -240,4 +240,53 @@ def evaluate_rl_agent(agent, env, label_dict, multi_test_df, batch_size=1, save_
         'classification_report': clf_report
     }
 
+import json
+import numpy as np
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, roc_auc_score
+from sklearn.preprocessing import label_binarize
+
+logger = logging.getLogger(__name__)
+
+def evaluate_rl_agent(y_true, y_pred, label_dict_path):
+    """
+    Evaluates the performance of the RL agent.
+
+    Parameters:
+    - y_true (np.array): True labels (integer-encoded).
+    - y_pred (np.array): Predicted labels (integer-encoded).
+    - label_dict_path (str): Path to the label dictionary JSON file.
+
+    Returns:
+    - metrics (dict): Evaluation metrics.
+    """
+    # Load label dictionary
+    with open(label_dict_path, 'r') as f:
+        label_dict = json.load(f)
+    inv_label_dict = {v: k for k, v in label_dict.items()}
+
+    # Ensure y_true contains integer labels
+    if y_true.dtype.type is np.str_:
+        y_true = np.array([label_dict.get(label, -1) for label in y_true])
+        logger.debug("[DEBUG] Converted string labels to integers.")
+
+    try:
+        y_true_labels = np.array([inv_label_dict[y] for y in y_true])
+    except KeyError as e:
+        logger.error(f"Label mapping error: {e}")
+        y_true_labels = None
+
+    if y_true_labels is not None:
+        report = classification_report(y_true_labels, y_pred, target_names=inv_label_dict.values(), zero_division=0)
+        cm = confusion_matrix(y_true_labels, y_pred)
+        metrics = {
+            'classification_report': report,
+            'confusion_matrix': cm
+        }
+        logger.info("Evaluation Metrics:\n" + report)
+    else:
+        logger.error("Evaluation aborted due to label mapping errors.")
+        metrics = {}
+
+    return metrics
+
 # ... rest of existing code ...
