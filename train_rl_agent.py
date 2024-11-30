@@ -75,13 +75,29 @@ def get_print_interval(num_episodes):
 
 def main():
     try:
+        # Set device to GPU
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {device}")
+        
+        # Add detailed hardware information
+        if device.type == 'cuda':
+            num_gpus = torch.cuda.device_count()
+            logger.info(f"Number of GPUs available: {num_gpus}")
+            for i in range(num_gpus):
+                gpu_name = torch.cuda.get_device_name(i)
+                gpu_properties = torch.cuda.get_device_properties(i)
+                total_memory = gpu_properties.total_memory / (1024 ** 3)  # Convert to GB
+                logger.info(f"GPU {i}: {gpu_name} with {total_memory:.2f} GB memory")
+        else:
+            logger.info("No CUDA-compatible GPU found. Using CPU.")
+
         # Ensure all required directories exist upfront
         os.makedirs("results/multi_class_classification", exist_ok=True)
         os.makedirs("models", exist_ok=True)
 
         # Define ALL paths at the start
-        multi_train_path = "processed_data/multi_class_classification/train_multi_class_subset.csv"
-        multi_test_path = "processed_data/multi_class_classification/train_multi_class_subset.csv"
+        multi_train_path = "processed_data/multi_class_classification/train_multi_class.csv"
+        multi_test_path = "processed_data/multi_class_classification/test_multi_class.csv"
         label_dict_path = "processed_data/multi_class_classification/label_dict.json"  # Added this line
         evaluation_save_path = os.path.abspath('results/multi_class_classification')
 
@@ -107,15 +123,31 @@ def main():
         multi_feature_cols = [col for col in multi_train_df.columns if col not in ['Label']]
         
         # Initialize environment and agent for training
-        env = NetworkClassificationEnv(multi_train_df, label_dict)
+        env = NetworkClassificationEnv(
+            multi_train_df, 
+            label_dict, 
+            batch_size=128  # Set batch_size to match DataLoader's batch_size
+        )
         state_size = len(multi_feature_cols)  # Number of feature columns
         action_size = len(label_dict)         # Number of unique actions/classes
 
-        agent = Agent(state_size=state_size, action_size=action_size)
+        # Increase batch size based on GPU memory (e.g., 128)
+        agent = Agent(
+            state_size=state_size, 
+            action_size=action_size, 
+            device=device, 
+            batch_size=128  # Increased batch size for better GPU utilization
+        )  
+        agent.qnetwork_local.to(device)
+        agent.qnetwork_target.to(device)
+        
+        print("Q-Network Local Structure:")
+        print(agent.qnetwork_local)  # Print network structure
+        
         trainer = Trainer(env, agent)
     
         # Start training
-        num_episodes = 150
+        num_episodes = 10
         print_interval = get_print_interval(num_episodes)
         logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
         

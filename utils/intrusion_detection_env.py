@@ -33,13 +33,17 @@ class NetworkClassificationEnv(gym.Env):
         super(NetworkClassificationEnv, self).__init__()
         self.data_df = data_df.reset_index(drop=True)
         self.label_dict = label_dict
-        self.batch_size = batch_size
+        self.batch_size = batch_size  # Initialize batch_size to match Trainer's DataLoader (set to 128 in train_rl_agent.py)
         self.max_steps = max_steps
         self.current_step = 0
         self.num_samples = len(self.data_df)
         self.labels = None  # Initialize labels
         self.current_state_index = 0  # Initialize current state index
         
+        # Store feature data and labels
+        self.state_data = data_df.drop('Label', axis=1).values.astype(np.float32)  # Ensure float32 for efficiency
+        self.label_data = data_df['Label'].map(label_dict).values.astype(np.int64)  # Map labels to integers
+
         # Define action and observation space
         self.action_space = spaces.Discrete(len(label_dict))  # Actions correspond to different attack types
         self.observation_space = spaces.Box(
@@ -158,3 +162,21 @@ class NetworkClassificationEnv(gym.Env):
         else:
             logger.warning("Reached end of dataset during evaluation")
             return None
+
+    def get_states(self):
+        """
+        Returns the feature data for training.
+        
+        Returns:
+            np.ndarray: Array of feature data.
+        """
+        return self.state_data
+    
+    def get_labels(self):
+        """
+        Returns the label data for training.
+        
+        Returns:
+            np.ndarray: Array of label indices.
+        """
+        return self.label_data

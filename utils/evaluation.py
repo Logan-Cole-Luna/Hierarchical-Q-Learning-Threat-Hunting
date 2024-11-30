@@ -169,15 +169,15 @@ def evaluate_rl_agent(agent, env, label_dict, multi_test_df, batch_size=1, save_
             break
 
         # Get action probabilities from agent
-        state_tensor = torch.FloatTensor(current_states)
+        state_tensor = torch.FloatTensor(current_states).to(agent.device)
         action_probs = agent.get_action_probabilities(state_tensor)
 
         # Store predictions and true labels
         y_true.extend(current_labels)
-        y_scores.extend(action_probs.detach().numpy())
+        y_scores.extend(action_probs.detach().cpu().numpy())
 
         # Take action in environment
-        actions = np.argmax(action_probs.detach().numpy(), axis=1)
+        actions = np.argmax(action_probs.detach().cpu().numpy(), axis=1)
         current_states, rewards, done, current_labels = env.step(actions)
 
     # Convert to numpy arrays

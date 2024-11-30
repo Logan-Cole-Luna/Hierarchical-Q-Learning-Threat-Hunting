@@ -19,15 +19,32 @@ class QNetwork(nn.Module):
     
     def __init__(self, state_size, action_size, hidden_layers=[128, 64]):
         super(QNetwork, self).__init__()
-        layers = []
-        input_size = state_size
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(input_size, hidden_size))
-            layers.append(nn.ReLU())
-            input_size = hidden_size
-        layers.append(nn.Linear(input_size, action_size))
-        self.network = nn.Sequential(*layers)
+        
+        # Shared fully connected layers with Batch Normalization
+        self.shared_layers = nn.Sequential(
+            nn.Linear(state_size, hidden_layers[0]),
+            nn.BatchNorm1d(hidden_layers[0]),
+            nn.ReLU(),
+            nn.Linear(hidden_layers[0], hidden_layers[1]),
+            nn.BatchNorm1d(hidden_layers[1]),
+            nn.ReLU()
+        )
+        
+        # Value stream
+        self.value_fc = nn.Linear(hidden_layers[1], 1)
+        
+        # Advantage stream
+        self.advantage_fc = nn.Linear(hidden_layers[1], action_size)
     
     def forward(self, state):
-        x = self.network(state)
-        return x  # Return raw Q-values without activation
+        # Pass through shared layers
+        x = self.shared_layers(state)
+        
+        # Compute value and advantage streams
+        value = self.value_fc(x)  # Shape: [batch_size, 1]
+        advantage = self.advantage_fc(x)  # Shape: [batch_size, action_size]
+        
+        # Combine value and advantage to get Q-values
+        q_vals = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        
+        return q_vals  # Return Q-values

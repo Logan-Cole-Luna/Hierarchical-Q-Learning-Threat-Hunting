@@ -376,8 +376,13 @@ def balance_training_set(train_df, label_col='Label', method='smote', random_sta
         print("\nApplying Random UnderSampling to balance classes...")
         rus = RandomUnderSampler(random_state=random_state)
         X_balanced, y_balanced = rus.fit_resample(X, y)
+    elif method == 'none':
+        print("\nNo balancing applied to the training set.")
+        train_df_balanced = train_df.copy()
+        print(f"Training set shape remains: {train_df_balanced.shape}")
+        return train_df_balanced
     else:
-        raise ValueError("Unsupported balancing method. Choose 'smote' or 'undersample'.")
+        raise ValueError("Unsupported balancing method. Choose 'smote', 'undersample', or 'none'.")
 
     # Reconstruct DataFrame with both Label and Threat
     train_df_balanced = pd.DataFrame(X_balanced, columns=X.columns)
@@ -628,7 +633,7 @@ def main():
     threat_col = "Threat"
     test_size = 0.2
     random_state = 42
-    balancing_method = 'undersample'  # Options: 'smote', 'undersample'
+    balancing_method = 'none'  # Options: 'smote', 'undersample', 'none'
     samples_per_class_subset = 10  # Number of samples per class in train_subset_df
     feature_importance_threshold = 0.01  # Threshold for feature selection
 
