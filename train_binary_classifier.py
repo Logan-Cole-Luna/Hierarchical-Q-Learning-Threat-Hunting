@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 def main():
     try:
         # Define paths
-        binary_train_path = "processed_data/binary_classification/test_binary.csv"
-        binary_test_path = "processed_data/binary_classification/train_binary.csv"  # Fixed path
+        binary_train_path = "processed_data/binary_classification/train_binary.csv"
+        binary_test_path = "processed_data/binary_classification/test_binary.csv"
         label_dict_path = "processed_data/binary_classification/label_dict.json"
         class_weights_path = "processed_data/binary_classification/class_weights.json"
         model_path = "models/binary_classifier.pkl"

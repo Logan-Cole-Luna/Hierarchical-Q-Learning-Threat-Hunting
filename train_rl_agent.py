@@ -147,11 +147,18 @@ def main():
         trainer = Trainer(env, agent)
     
         # Start training
-        num_episodes = 10
+        
+        
+        
+        num_episodes = 200  # Increased from 100 to 200
         print_interval = get_print_interval(num_episodes)
         logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
         
-        reward_history, loss_history = trainer.train(num_episodes, print_interval=print_interval)
+        reward_history, loss_history = trainer.train(
+            num_episodes,
+            print_interval=print_interval,
+            early_stopping_rounds=10  # Added early stopping parameter
+        )
     
         # Ensure all classes are included in the dataset
         class_counts = Counter(multi_train_df['Label'])

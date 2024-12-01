@@ -33,13 +33,14 @@ class Trainer:
         self.env = env
         self.agent = agent
 
-    def train(self, num_episodes, print_interval=None):
+    def train(self, num_episodes, print_interval=None, early_stopping_rounds=10):
         """
         Train the agent for the specified number of episodes.
         
         Args:
             num_episodes (int): Number of episodes to train for
             print_interval (int): How often to print progress (every N episodes)
+            early_stopping_rounds (int): Number of episodes with no improvement to stop training early
         """
         if print_interval is None:
             print_interval = max(1, num_episodes // 10)
@@ -47,6 +48,9 @@ class Trainer:
         reward_history = []
         loss_history = []
         recent_rewards = deque(maxlen=10)  # Track last 10 rewards for averaging
+
+        best_loss = float('inf')
+        no_improvement = 0
 
         for episode in range(1, num_episodes + 1):
             states, labels = self.env.reset()
@@ -73,6 +77,16 @@ class Trainer:
             loss_history.append(avg_loss)
             recent_rewards.append(total_reward)
             avg_reward = np.mean(recent_rewards)
+
+            # Early stopping check
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                no_improvement = 0
+            else:
+                no_improvement += 1
+                if no_improvement >= early_stopping_rounds:
+                    logger.info(f"No improvement for {early_stopping_rounds} episodes. Stopping early.")
+                    break
 
             # Print progress at intervals
             if episode % print_interval == 0:

@@ -43,9 +43,9 @@ class Agent:
         hidden_layers=[128, 64],
         learning_rate=0.001,
         gamma=0.99,
-        epsilon_start=1.0,
-        epsilon_end=0.01,
-        epsilon_decay=0.995,
+        epsilon=1.0,
+        epsilon_min=0.1,
+        epsilon_decay=0.999,
         batch_size=64,
         memory_size=10000,
         device=torch.device("cpu")
@@ -71,8 +71,8 @@ class Agent:
         self.hidden_layers = hidden_layers
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.epsilon = epsilon_start
-        self.epsilon_min = epsilon_end
+        self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
         self.batch_size = batch_size
         self.device = device
