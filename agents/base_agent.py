@@ -164,11 +164,10 @@ class Agent:
         next_states = torch.FloatTensor(next_states).to(self.device)      # Shape: [batch_size, state_size]
         dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)    # Shape: [batch_size, 1]
         
-        # Get max predicted Q values (for next states) from target model
+        # Implement Double DQN
         with torch.no_grad():
-            Q_targets_next = self.qnetwork_target(next_states).max(1)[0].unsqueeze(1)  # Shape: [batch_size, 1]
-        
-        # Compute Q targets for current states
+            next_actions = self.qnetwork_local(next_states).argmax(1, keepdim=True)
+            Q_targets_next = self.qnetwork_target(next_states).gather(1, next_actions)
         Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
         
         # Get expected Q values from local model

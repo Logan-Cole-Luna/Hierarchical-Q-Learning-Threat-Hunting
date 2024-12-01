@@ -18,6 +18,7 @@ import numpy as np
 import logging
 from scipy.special import softmax
 from collections import deque
+from tqdm import tqdm 
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ class Trainer:
         best_loss = float('inf')
         no_improvement = 0
 
-        for episode in range(1, num_episodes + 1):
+        # Initialize tqdm progress bar
+        for episode in tqdm(range(1, num_episodes + 1), desc="Training Episodes"):
             states, labels = self.env.reset()
             total_reward = 0
             losses = []

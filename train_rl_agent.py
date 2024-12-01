@@ -41,27 +41,6 @@ from sklearn.model_selection import train_test_split
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def load_and_preprocess_data():
-    # Load data
-    df = pd.read_csv('processed_data/multi_class_classification/train_multi_class.csv')
-    
-    # Ensure balanced split
-    X = df.drop('Label', axis=1)
-    y = df['Label']
-    
-    # Stratify by Label to maintain class distribution
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    # Debug prints
-    logger.info(f"Training set shape: {X_train.shape}")
-    logger.info(f"Test set shape: {X_test.shape}")
-    logger.info(f"Training labels distribution:\n{y_train.value_counts()}")
-    logger.info(f"Test labels distribution:\n{y_test.value_counts()}")
-    
-    return X_train, X_test, y_train, y_test
-
 def get_print_interval(num_episodes):
     """Determine appropriate printing interval based on number of episodes."""
     if num_episodes <= 10:
@@ -150,7 +129,7 @@ def main():
         
         
         
-        num_episodes = 200  # Increased from 100 to 200
+        num_episodes = 2  # Increased from 100 to 200
         print_interval = get_print_interval(num_episodes)
         logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
         
