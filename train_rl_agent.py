@@ -76,6 +76,7 @@ def main():
 
         # Define ALL paths at the start
         multi_train_path = "processed_data/multi_class_classification/train_multi_class.csv"
+        multi_val_path = "processed_data/multi_class_classification/val_multi_class.csv"  # Load validation data
         multi_test_path = "processed_data/multi_class_classification/test_multi_class.csv"
         label_dict_path = "processed_data/multi_class_classification/label_dict.json"  # Added this line
         evaluation_save_path = os.path.abspath('results/multi_class_classification')
@@ -87,6 +88,7 @@ def main():
         
         logger.info("Loading multi-class classification data...")
         multi_train_df = pd.read_csv(multi_train_path)
+        multi_val_df = pd.read_csv(multi_val_path)    # Load validation data
         multi_test_df = pd.read_csv(multi_test_path)
         logger.info(f"Test set class distribution:\n{multi_test_df['Label'].value_counts()}")
         
@@ -107,6 +109,14 @@ def main():
             label_dict, 
             batch_size=128  # Set batch_size to match DataLoader's batch_size
         )
+
+        # Initialize environment for validation
+        val_env = NetworkClassificationEnv(
+            multi_val_df, 
+            label_dict, 
+            batch_size=128
+        )
+
         state_size = len(multi_feature_cols)  # Number of feature columns
         action_size = len(label_dict)         # Number of unique actions/classes
 
@@ -123,20 +133,16 @@ def main():
         print("Q-Network Local Structure:")
         print(agent.qnetwork_local)  # Print network structure
         
-        trainer = Trainer(env, agent)
-    
-        # Start training
+        trainer = Trainer(env, agent, val_env=val_env)
         
-        
-        
-        num_episodes = 2  # Increased from 100 to 200
+        num_episodes = 200  # Increased from 100 to 200
         print_interval = get_print_interval(num_episodes)
         logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
         
         reward_history, loss_history = trainer.train(
             num_episodes,
             print_interval=print_interval,
-            early_stopping_rounds=10  # Added early stopping parameter
+            early_stopping_rounds=1000  # Added early stopping parameter
         )
     
         # Ensure all classes are included in the dataset

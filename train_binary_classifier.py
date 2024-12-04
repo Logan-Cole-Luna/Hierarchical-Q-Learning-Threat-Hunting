@@ -22,13 +22,14 @@ import logging
 from utils.evaluation import evaluate_binary_classifier  # Import evaluation function
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def main():
     try:
         # Define paths
         binary_train_path = "processed_data/binary_classification/train_binary.csv"
+        binary_val_path = "processed_data/binary_classification/val_binary.csv"    # Load validation data
         binary_test_path = "processed_data/binary_classification/test_binary.csv"
         label_dict_path = "processed_data/binary_classification/label_dict.json"
         class_weights_path = "processed_data/binary_classification/class_weights.json"
@@ -42,15 +43,27 @@ def main():
         
         logger.info("Loading binary classification data...")
         train_df = pd.read_csv(binary_train_path)
+        val_df = pd.read_csv(binary_val_path)    # Load validation data
         test_df = pd.read_csv(binary_test_path)
         
-        # Load label dictionary
-        if not os.path.exists(label_dict_path):
-            logger.error("Label dictionary not found. Please ensure it exists in the specified path.")
-            return
+        # Ensure no overlap between train and test sets
+        # Replace overlap check with hash-based method
+        # overlap_exists = train_hashes.isin(test_hashes).any()
+        # if overlap_exists:
+        #     overlapping_records = train_df[train_hashes.isin(test_hashes)]
+        #     logger.error("Overlap detected between training and testing sets.")
+        #     logger.debug(f"Number of overlapping records: {overlapping_records.shape[0]}")
+        #     logger.debug(f"Overlapping records:\n{overlapping_records.head()}")
+        #     return
         
-        with open(label_dict_path, "r") as infile:
-            label_dict = json.load(infile)
+        # Load label dictionary
+        # Removed loading label_dict since it's handled in BinaryAgent
+        # if not os.path.exists(label_dict_path):
+        #     logger.error("Label dictionary not found. Please ensure it exists in the specified path.")
+        #     return
+        
+        # with open(label_dict_path, "r") as infile:
+        #     label_dict = json.load(infile)
         
         # Define feature columns
         feature_cols = [col for col in train_df.columns if col not in ['Threat']]
@@ -61,12 +74,28 @@ def main():
             label_col='Threat',
             model_path=model_path,
             class_weights_path=class_weights_path,
-            label_dict_path=label_dict_path
+            label_dict_path=label_dict_path  # This parameter can remain or be removed if not used elsewhere
         )
         
-        # Train Binary Classifier
+        # Add data quality checks before training
+        logger.info("\nChecking for data quality issues...")
+        
+        # Check temporal distribution if timestamp column exists
+        if 'timestamp' in train_df.columns:
+            logger.info("\nTemporal Distribution:")
+            logger.info(f"Training data time range: {train_df['timestamp'].min()} to {train_df['timestamp'].max()}")
+            logger.info(f"Test data time range: {test_df['timestamp'].min()} to {test_df['timestamp'].max()}")
+        
+        # Check feature correlations with target
+        correlations = train_df[feature_cols].corrwith(train_df[label_col].map(binary_agent.label_mapping))
+        high_corr_features = correlations[abs(correlations) > 0.9]
+        if not high_corr_features.empty:
+            logger.warning("\nFeatures with suspiciously high correlation to target:")
+            logger.warning(high_corr_features)
+        
+        # Train Binary Classifier with validation data
         logger.info("Starting training of Binary Classifier...")
-        report = binary_agent.train(train_df, test_df)
+        report = binary_agent.train(train_df, test_df, val_df=val_df)  # Corrected argument order
         logger.info("Binary Classifier Training and Evaluation Completed.")
         
         # Ensure probabilities are obtained for ROC computation

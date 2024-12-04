@@ -23,16 +23,18 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 class Trainer:
-    def __init__(self, env, agent):
+    def __init__(self, env, agent, val_env=None):
         """
         Initializes the Trainer with the environment and agent.
         
         Parameters:
         - env (NetworkClassificationEnv): The environment for training.
         - agent (Agent): The RL agent to train.
+        - val_env (NetworkClassificationEnv, optional): The environment for validation.
         """
         self.env = env
         self.agent = agent
+        self.val_env = val_env  # Add validation environment
 
     def train(self, num_episodes, print_interval=None, early_stopping_rounds=10):
         """
@@ -52,6 +54,8 @@ class Trainer:
 
         best_loss = float('inf')
         no_improvement = 0
+        best_val_loss = float('inf')
+        early_stopping_counter = 0
 
         # Initialize tqdm progress bar
         for episode in tqdm(range(1, num_episodes + 1), desc="Training Episodes"):
@@ -90,6 +94,19 @@ class Trainer:
                     logger.info(f"No improvement for {early_stopping_rounds} episodes. Stopping early.")
                     break
 
+            # Validate after each episode if validation environment is provided
+            if self.val_env is not None:
+                val_loss = self.validate()
+                # Early stopping logic
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    early_stopping_counter = 0
+                else:
+                    early_stopping_counter += 1
+                if early_stopping_rounds and early_stopping_counter >= early_stopping_rounds:
+                    print("Early stopping triggered.")
+                    break
+
             # Print progress at intervals
             if episode % print_interval == 0:
                 logger.info(f"Episode {episode}/{num_episodes} - "
@@ -98,6 +115,15 @@ class Trainer:
                           f"Average Loss: {avg_loss:.4f}")
 
         return reward_history, loss_history
+
+    def validate(self):
+        self.agent.qnetwork_local.eval()
+        total_loss = 0
+        with torch.no_grad():
+            # ...validation loop using self.val_env...
+            pass  # Implement validation loss calculation
+        self.agent.qnetwork_local.train()
+        return total_loss
 
     def evaluate(self):
         """

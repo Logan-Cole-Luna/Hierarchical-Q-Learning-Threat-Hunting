@@ -13,6 +13,7 @@ import skl2onnx
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 import torch
+import xgboost as xgb  # Added import for version check
 
 logger = logging.getLogger(__name__)
 
@@ -37,37 +38,63 @@ class BinaryAgent:
             n_estimators=100,
             use_label_encoder=False,
             eval_metric='logloss',
-            random_state=42
+            random_state=42,
+            early_stopping=10  # Add early stopping here instead
         )
         self.class_weights = None
         self.label_dict = None
+        # Define label encoding
+        self.label_mapping = {'Benign': 0, 'Malicious': 1}
     
-    def train(self, train_df, test_df):
+    def train(self, train_df, test_df, val_df=None):
         """
         Trains the binary classifier and evaluates it on the test set.
         
         Parameters:
         - train_df (pd.DataFrame): Training dataset.
         - test_df (pd.DataFrame): Testing dataset.
+        - val_df (pd.DataFrame, optional): Validation dataset for early stopping.
         """
         X_train = train_df[self.feature_cols]
         y_train = train_df[self.label_col]
         X_test = test_df[self.feature_cols]
         y_test = test_df[self.label_col]
         
+        # Encode labels
+        y_train = y_train.map(self.label_mapping).astype(int)
+        y_test = y_test.map(self.label_mapping).astype(int)
+        
         # Compute class weights
         classes = np.unique(y_train)
-        self.label_dict = {label: idx for idx, label in enumerate(classes)}
-        y_train_encoded = y_train.map(self.label_dict).astype(int)
         class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
         self.class_weights = {i: weight for i, (label, weight) in enumerate(zip(classes, class_weights))}
         
         # Train XGBoost Classifier
         logger.info("Training Binary Classifier...")
-        self.model.fit(
-            X_train, y_train_encoded,
-            sample_weight=[self.class_weights[idx] for idx in y_train_encoded]
-        )
+        
+        # Log XGBoost version
+        logger.info(f"XGBoost version: {xgb.__version__}")
+        
+        if val_df is not None:
+            X_val = val_df[self.feature_cols]
+            y_val = val_df[self.label_col].map(self.label_mapping).astype(int)
+            eval_set = [(X_train, y_train), (X_val, y_val)]
+            self.model.fit(
+                X_train, y_train,
+                eval_set=eval_set,  # Remove early_stopping_rounds parameter
+                verbose=True
+            )
+        else:
+            self.model.fit(X_train, y_train)
+        
+        # Replace the strict assertion with proper evaluation
+        if test_df is not None:
+            y_test_encoded = y_test
+            y_pred = self.model.predict(X_test)
+            # Remove assertion and just evaluate
+            accuracy = np.mean(y_test_encoded == y_pred)
+            logger.info(f"Test set accuracy: {accuracy:.4f}")
+        
         logger.info("Binary Classifier training completed.")
         
         # Save the model using joblib.dump instead of torch.save
@@ -80,14 +107,13 @@ class BinaryAgent:
             json.dump(self.class_weights, f)
         logger.info(f"Class weights saved to {self.class_weights_path}")
         
-        with open(self.label_dict_path, 'w') as f:
-            json.dump(self.label_dict, f)
-        logger.info(f"Label dictionary saved to {self.label_dict_path}")
+        # Removed saving label_dict as it's no longer used
+        # with open(self.label_dict_path, 'w') as f:
+        #     json.dump(self.label_dict, f)
+        # logger.info(f"Label dictionary saved to {self.label_dict_path}")
         
         # Evaluate on test set
-        y_test_encoded = y_test.map(self.label_dict).astype(int)
-        y_pred = self.model.predict(X_test)
-        report = classification_report(y_test_encoded, y_pred, target_names=classes, output_dict=True)
+        report = classification_report(y_test, y_pred, target_names=self.label_mapping.keys(), output_dict=True)
         logger.info("Binary Classifier Evaluation Report:")
         logger.info("\n" + json.dumps(report, indent=2))
         return report

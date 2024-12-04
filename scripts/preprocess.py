@@ -108,6 +108,14 @@ def load_and_clean_data(data_dir, csv_files):
     print("Concatenating all cleaned data...")
     df_all = pd.concat(chunk_list, axis=0).reset_index(drop=True)
     print(f"Combined DataFrame shape: {df_all.shape}")
+    
+    # Remove duplicate rows
+    print("Removing duplicate rows...")
+    initial_shape = df_all.shape
+    df_all.drop_duplicates(inplace=True)
+    duplicates_removed = initial_shape[0] - df_all.shape[0]
+    print(f"Removed {duplicates_removed} duplicate rows.")
+    
     del chunk_list  # Free up memory
     return df_all
 
@@ -320,32 +328,44 @@ def remove_highly_correlated_features(df, threshold=0.90):
     print(f"DataFrame shape after removing highly correlated features: {df.shape}")
     return df
 
-def split_data(df, label_col='Label', threat_col='Threat', test_size=0.2, random_state=42):
+def split_data(df, label_col='Label', threat_col='Threat', test_size=0.2, val_size=0.1, random_state=42):
     """
-    Splits the DataFrame into training and testing sets with stratification.
-
-    Parameters:
-    - df (pd.DataFrame): DataFrame to split.
-    - label_col (str): Name of the label column.
-    - threat_col (str): Name of the binary threat column.
-    - test_size (float): Proportion of the dataset to include in the test split.
-    - random_state (int): Random seed.
-
-    Returns:
-    - train_df (pd.DataFrame): Training set.
-    - test_df (pd.DataFrame): Testing set.
+    Splits the DataFrame into training, validation, and testing sets with stratification.
     """
     print("\nSplitting data into train and test sets...")
     train_df, test_df = train_test_split(
         df, test_size=test_size, random_state=random_state, shuffle=True, stratify=df[label_col]
     )
+    train_df = train_df.reset_index(drop=True)
+    test_df = test_df.reset_index(drop=True)
     print(f"Training set shape: {train_df.shape}")
     print(f"Testing set shape: {test_df.shape}")
     print("\nTraining set distribution:")
     print(train_df[label_col].value_counts())
     print("\nTesting set distribution:")
     print(test_df[label_col].value_counts())
-    return train_df, test_df
+    
+    # Check for duplicates between train and test sets
+    train_hashes = train_df.apply(lambda row: hash(tuple(row)), axis=1)
+    test_hashes = set(test_df.apply(lambda row: hash(tuple(row)), axis=1))
+    overlap = train_hashes.isin(test_hashes).sum()
+    print(f"\nNumber of overlapping records between train and test sets: {overlap}")
+
+    # Split training set into training and validation sets
+    print("\nSplitting training data into training and validation sets...")
+    train_df, val_df = train_test_split(
+        train_df, test_size=val_size, random_state=random_state, shuffle=True, stratify=train_df[label_col]
+    )
+    train_df = train_df.reset_index(drop=True)
+    val_df = val_df.reset_index(drop=True)
+    print(f"Updated Training set shape: {train_df.shape}")
+    print(f"Validation set shape: {val_df.shape}")
+    print("\nUpdated Training set distribution:")
+    print(train_df[label_col].value_counts())
+    print("\nValidation set distribution:")
+    print(val_df[label_col].value_counts())
+    
+    return train_df, val_df, test_df
 
 def balance_training_set(train_df, label_col='Label', method='smote', random_state=42, samples_per_class=None):
     """
@@ -448,7 +468,7 @@ def save_label_dict_and_class_weights(label_dict, class_weights, output_dir):
     print(f"Saved label dictionary to '{output_dir}/label_dict.json'.")
 
     # Save class weights
-    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f:
+    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f):
         json.dump(class_weights, f)
     print(f"Saved class weights to '{output_dir}/class_weights.json'.")
 
@@ -518,7 +538,7 @@ def create_train_subset(train_df_balanced, label_col='Label', samples_per_class=
     print(f"Training subset distribution:\n{train_subset_df[label_col].value_counts()}")
     return train_subset_df
 
-def save_processed_data(train_df, test_df, train_subset_df, feature_cols, selected_features, label_dict, class_weights, output_dir='processed_data'):
+def save_processed_data(train_df, val_df, test_df, train_subset_df, feature_cols, selected_features, label_dict, class_weights, output_dir='processed_data'):
     """
     Saves the processed training, testing, and subset datasets, along with label dictionary and class weights.
 
@@ -554,25 +574,27 @@ def save_processed_data(train_df, test_df, train_subset_df, feature_cols, select
     print(f"Saved label dictionary to '{output_dir}/label_dict.json'.")
 
     # Save class weights
-    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f:
+    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f):
         json.dump(class_weights, f)
     print(f"Saved class weights to '{output_dir}/class_weights.json'.")
 
-def create_hierarchical_datasets(train_df_balanced, test_df, feature_cols, output_dir='processed_data', subset_size=100):
+def create_hierarchical_datasets(train_df_balanced, val_df, test_df, feature_cols, output_dir='processed_data', subset_size=100):
     """
     Creates hierarchical datasets for binary and multi-class classification,
     including subsets for overfitting tests, and saves separate label dictionaries and class weights.
     """
     print("\nCreating hierarchical datasets for binary and multi-class classification...")
-
+    
     # 1. Binary Classification Dataset
     binary_output_dir = os.path.join(output_dir, 'binary_classification')
     os.makedirs(binary_output_dir, exist_ok=True)
 
     # Save binary classification datasets
     train_binary = train_df_balanced[['Threat'] + feature_cols]
+    val_binary = val_df[['Threat'] + feature_cols]  # Added validation set
     test_binary = test_df[['Threat'] + feature_cols]
     train_binary.to_csv(os.path.join(binary_output_dir, 'train_binary.csv'), index=False)
+    val_binary.to_csv(os.path.join(binary_output_dir, 'val_binary.csv'), index=False)  # Save validation set
     test_binary.to_csv(os.path.join(binary_output_dir, 'test_binary.csv'), index=False)
     print(f"Saved binary classification datasets to '{binary_output_dir}'.")
 
@@ -599,8 +621,10 @@ def create_hierarchical_datasets(train_df_balanced, test_df, feature_cols, outpu
 
     # Save multi-class classification datasets
     train_multi = train_malicious[['Label'] + feature_cols]
+    val_multi = val_df[val_df['Threat'] == 'Malicious'][['Label'] + feature_cols]  # Added validation set
     test_multi = test_malicious[['Label'] + feature_cols]
     train_multi.to_csv(os.path.join(multi_class_output_dir, 'train_multi_class.csv'), index=False)
+    val_multi.to_csv(os.path.join(multi_class_output_dir, 'val_multi_class.csv'), index=False)  # Save validation set
     test_multi.to_csv(os.path.join(multi_class_output_dir, 'test_multi_class.csv'), index=False)
     print(f"Saved multi-class classification datasets to '{multi_class_output_dir}'.")
 
@@ -632,6 +656,8 @@ def main():
     label_col = "Label"
     threat_col = "Threat"
     test_size = 0.2
+
+    
     random_state = 42
     balancing_method = 'none'  # Options: 'smote', 'undersample', 'none'
     samples_per_class_subset = 10  # Number of samples per class in train_subset_df
@@ -649,8 +675,8 @@ def main():
     # Remove highly correlated features
     df_all = remove_highly_correlated_features(df_all, threshold=0.90)
 
-    # Split into train and test sets
-    train_df, test_df = split_data(df_all, label_col=label_col, threat_col=threat_col, test_size=test_size, random_state=random_state)
+    # Split into train, validation, and test sets
+    train_df, val_df, test_df = split_data(df_all, label_col=label_col, threat_col=threat_col, test_size=test_size, random_state=random_state)
     del df_all  # Free up memory
 
     # Feature columns
@@ -671,6 +697,7 @@ def main():
     # Create hierarchical datasets with subsets
     create_hierarchical_datasets(
         train_df_balanced=train_df_balanced,
+        val_df=val_df,
         test_df=test_df,
         feature_cols=feature_cols,
         output_dir='processed_data',

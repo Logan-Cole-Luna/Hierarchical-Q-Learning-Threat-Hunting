@@ -38,7 +38,7 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
     
     X_test = binary_test_df[binary_agent.feature_cols].values
     y_test = binary_test_df['Threat']
-    y_test_encoded = y_test.map(binary_agent.label_dict).astype(int).values
+    y_test_encoded = y_test.map(binary_agent.label_mapping).astype(int).values
     
     # Initialize predictions array
     y_pred = []
@@ -54,7 +54,27 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
         y_scores.extend(scores[:, 1])  # Assuming class '1' is 'Malicious'
     logger.info("Batch prediction completed.")
     
-    classes = list(binary_agent.label_dict.keys())
+    classes = list(binary_agent.label_mapping.keys())
+    
+    # Check for prediction alignment
+    y_pred_array = np.array(y_pred)
+    y_test_array = np.array(y_test_encoded)
+    if np.array_equal(y_pred_array, y_test_array):
+        logger.warning("Predictions perfectly match the true labels. Check for data leakage.")
+    
+    # Add data quality checks
+    logger.info("\nData Quality Checks:")
+    logger.info(f"Total samples: {len(binary_test_df)}")
+    logger.info(f"Class distribution:\n{binary_test_df['Threat'].value_counts(normalize=True).round(4) * 100}%")
+    
+    # Check for potential duplicates
+    duplicates = binary_test_df[binary_agent.feature_cols].duplicated().sum()
+    logger.info(f"Number of duplicate feature vectors: {duplicates}")
+    
+    # Check for extreme feature values
+    feature_stats = binary_test_df[binary_agent.feature_cols].describe()
+    logger.info("\nFeature Statistics:")
+    logger.info(feature_stats)
     
     # Generate Confusion Matrix
     cm = confusion_matrix(y_test_encoded, y_pred)
@@ -64,12 +84,29 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
         import matplotlib.pyplot as plt
         import seaborn as sns
         
-        plt.figure(figsize=(6,5))
-        sns.heatmap(cm_normalized, annot=True, fmt=".2f", cmap='Blues', xticklabels=classes, yticklabels=classes)
+        plt.figure(figsize=(10,8))
+        cm_normalized = confusion_matrix(y_test_encoded, y_pred, normalize='true')
+        cm_percentage = cm_normalized * 100  # Convert to percentages
+        
+        sns.heatmap(cm_percentage, 
+                   annot=True, 
+                   fmt='.2f', 
+                   cmap='Blues', 
+                   xticklabels=classes, 
+                   yticklabels=classes)
         plt.ylabel('True Label')
         plt.xlabel('Predicted Label')
-        plt.title('Confusion Matrix (Normalized)')
+        plt.title('Confusion Matrix (Normalized %)')
+        
+        # Add text annotations for actual counts
+        cm_counts = confusion_matrix(y_test_encoded, y_pred)
+        for i in range(len(classes)):
+            for j in range(len(classes)):
+                plt.text(j + 0.2, i + 0.7, f'(n={cm_counts[i,j]})', 
+                        color='black', fontsize=9)
+        
         cm_path = os.path.join(save_path, 'confusion_matrix.png')
+        plt.tight_layout()
         plt.savefig(cm_path)
         plt.close()
         logger.info(f"Confusion matrix saved to {cm_path}")
@@ -106,11 +143,27 @@ def plot_confusion_matrix(cm, class_names, save_path):
     """Plot and save confusion matrix as a heatmap with actual label names."""
     plt.figure(figsize=(12,10))
     
-    # Create a DataFrame for better labeling
-    cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
+    # Normalize the confusion matrix to percentages
+    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
     
-    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues')
-    plt.title('Confusion Matrix')
+    # Create a DataFrame for better labeling
+    cm_df = pd.DataFrame(cm_normalized, index=class_names, columns=class_names)
+    
+    # Plot heatmap with both percentages and raw counts
+    sns.heatmap(cm_df, 
+                annot=True, 
+                fmt='.1f', 
+                cmap='Blues',
+                vmin=0, 
+                vmax=100)
+    
+    # Add raw counts as text
+    for i in range(len(class_names)):
+        for j in range(len(class_names)):
+            plt.text(j + 0.2, i + 0.7, f'(n={cm[i,j]})', 
+                    fontsize=8, color='black')
+    
+    plt.title('Confusion Matrix\n(percentages with raw counts)')
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
     plt.xticks(rotation=45, ha='right')
@@ -118,7 +171,7 @@ def plot_confusion_matrix(cm, class_names, save_path):
     plt.tight_layout()
     
     save_file = os.path.join(save_path, 'rl_confusion_matrix.png')
-    plt.savefig(save_file, bbox_inches='tight')
+    plt.savefig(save_file, bbox_inches='tight', dpi=300)
     plt.close()
 
 def plot_roc_curves(fpr, tpr, roc_auc, class_names, save_path):
