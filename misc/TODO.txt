@@ -1,5 +1,9 @@
 - Update the visuals, eg network flow, transition to plotly?
 
 - Improve reward function with proper Q learning algorithm
+-- Define proper actions for agent to do
+-- Have env react to actions
 
 - Improve data preprocessing, have the values be better normalized & encoded
+
+- Improve data to be temporal
