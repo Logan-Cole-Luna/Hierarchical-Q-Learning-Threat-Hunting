@@ -77,22 +77,6 @@ def main():
             label_dict_path=label_dict_path  # This parameter can remain or be removed if not used elsewhere
         )
         
-        # Add data quality checks before training
-        logger.info("\nChecking for data quality issues...")
-        
-        # Check temporal distribution if timestamp column exists
-        if 'timestamp' in train_df.columns:
-            logger.info("\nTemporal Distribution:")
-            logger.info(f"Training data time range: {train_df['timestamp'].min()} to {train_df['timestamp'].max()}")
-            logger.info(f"Test data time range: {test_df['timestamp'].min()} to {test_df['timestamp'].max()}")
-        
-        # Check feature correlations with target
-        correlations = train_df[feature_cols].corrwith(train_df[label_col].map(binary_agent.label_mapping))
-        high_corr_features = correlations[abs(correlations) > 0.9]
-        if not high_corr_features.empty:
-            logger.warning("\nFeatures with suspiciously high correlation to target:")
-            logger.warning(high_corr_features)
-        
         # Train Binary Classifier with validation data
         logger.info("Starting training of Binary Classifier...")
         report = binary_agent.train(train_df, test_df, val_df=val_df)  # Corrected argument order
