@@ -79,7 +79,6 @@ def main():
         multi_val_path = "processed_data/multi_class_classification/val_multi_class.csv"  # Load validation data
         multi_test_path = "processed_data/multi_class_classification/test_multi_class.csv"
         label_dict_path = "processed_data/multi_class_classification/label_dict.json"  # Added this line
-        evaluation_save_path = os.path.abspath('results/multi_class_classification')
 
         # Load preprocessed multi-class classification data
         if not (os.path.exists(multi_train_path) and os.path.exists(multi_test_path)):
@@ -102,6 +101,10 @@ def main():
         
         # Define feature columns
         multi_feature_cols = [col for col in multi_train_df.columns if col not in ['Label']]
+        
+        # Save feature columns to JSON for consistent evaluation
+        with open('models/rl_dqn_model_features.json', 'w') as f:
+            json.dump(multi_feature_cols, f)
         
         # Initialize environment and agent for training
         env = NetworkClassificationEnv(
@@ -135,7 +138,7 @@ def main():
         
         trainer = Trainer(env, agent, val_env=val_env)
         
-        num_episodes = 200  # Increased from 100 to 200
+        num_episodes = 2  # Increased from 100 to 200
         print_interval = get_print_interval(num_episodes)
         logger.info(f"Starting training for {num_episodes} episodes (printing every {print_interval} episodes)...")
         
@@ -212,6 +215,22 @@ def main():
         torch.save(agent.qnetwork_local.state_dict(), rl_model_path)
         logger.info(f"RL Model saved to {rl_model_path}")
         
+        # After training, export the RL model to ONNX format
+        onnx_model_path = "models/rl_dqn_model.onnx"
+        dummy_input = torch.randn(1, state_size).to(device)
+        torch.onnx.export(
+            agent.qnetwork_local,
+            dummy_input,
+            onnx_model_path,
+            export_params=True,
+            opset_version=12,
+            do_constant_folding=True,
+            input_names=['input'],
+            output_names=['output'],
+            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+        )
+        logger.info(f"RL model exported to ONNX format at {onnx_model_path}")
+
     except Exception as e:
         logger.exception("An error occurred during RL agent training.")
 

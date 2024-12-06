@@ -282,12 +282,12 @@ def remove_constant_and_duplicate_columns(df):
     else:
         print("No constant columns to drop.")
 
-    # Remove duplicate columns (excluding 'Label' and 'Threat')
+    # Exclude 'Pkt Len Min' from being removed as duplicate
     duplicates = set()
     cols = df.columns
     for i in range(len(cols)):
         for j in range(i+1, len(cols)):
-            if cols[j] in duplicates or cols[j] in ['Label', 'Threat']:
+            if cols[j] in duplicates or cols[j] in ['Label', 'Threat', 'Pkt Len Min']:
                 continue
             if df[cols[i]].equals(df[cols[j]]):
                 duplicates.add(cols[j])
@@ -304,20 +304,14 @@ def remove_constant_and_duplicate_columns(df):
 def remove_highly_correlated_features(df, threshold=0.90):
     """
     Removes highly correlated features based on Pearson correlation.
-
-    Parameters:
-    - df (pd.DataFrame): DataFrame to process.
-    - threshold (float): Correlation threshold above which to remove features.
-
-    Returns:
-    - df (pd.DataFrame): DataFrame with highly correlated features removed.
     """
     print("\nCalculating Pearson correlation matrix...")
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     corr_matrix = df[numeric_cols].corr().abs()
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 
-    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+    # Exclude 'Pkt Len Min' from being considered for dropping
+    to_drop = [column for column in upper.columns if any(upper[column] > threshold) and column != 'Pkt Len Min']
 
     if to_drop:
         df.drop(columns=to_drop, inplace=True)
@@ -468,7 +462,7 @@ def save_label_dict_and_class_weights(label_dict, class_weights, output_dir):
     print(f"Saved label dictionary to '{output_dir}/label_dict.json'.")
 
     # Save class weights
-    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f):
+    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f:
         json.dump(class_weights, f)
     print(f"Saved class weights to '{output_dir}/class_weights.json'.")
 
@@ -574,7 +568,7 @@ def save_processed_data(train_df, val_df, test_df, train_subset_df, feature_cols
     print(f"Saved label dictionary to '{output_dir}/label_dict.json'.")
 
     # Save class weights
-    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f):
+    with open(os.path.join(output_dir, 'class_weights.json'), 'w') as f:
         json.dump(class_weights, f)
     print(f"Saved class weights to '{output_dir}/class_weights.json'.")
 
@@ -703,7 +697,7 @@ def main():
         output_dir='processed_data',
         subset_size=100  # Adjust the subset size as needed
     )
-
+    
     print("\nPreprocessing completed successfully.")
 
 if __name__ == "__main__":
