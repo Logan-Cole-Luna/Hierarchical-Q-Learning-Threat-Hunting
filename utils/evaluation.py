@@ -16,6 +16,7 @@ from sklearn.preprocessing import label_binarize
 import json
 import os
 import logging
+import onnxruntime as ort
 
 logger = logging.getLogger(__name__)
 
@@ -206,90 +207,135 @@ def plot_roc_curves(fpr, tpr, roc_auc, class_names, save_path):
     plt.savefig(save_file)
     plt.close()
 
-def evaluate_rl_agent(agent, env, label_dict, multi_test_df, batch_size=1, save_confusion_matrix=True, save_roc_curves=True, save_path='results'):
-    """Evaluate a trained RL agent with human-readable labels."""
-    logger.info("Starting evaluation of RL Agent...")
-    y_true = []
+def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, batch_size=256, save_confusion_matrix=True, save_roc_curve=True, save_path='results/multi_class_classification'):
+    """
+    Evaluates the RL agent using the provided ONNX model.
+
+    Parameters:
+    - session (onnxruntime.InferenceSession): The ONNX inference session for the RL model.
+    - test_df (pd.DataFrame): Test dataset for multi-class classification.
+    - feature_cols (list): List of feature column names.
+    - label_col (str): Name of the label column.
+    - label_mapping (dict): Mapping from label names to integers.
+    - batch_size (int): Number of samples per batch for prediction.
+    - save_confusion_matrix (bool): Whether to save the confusion matrix plot.
+    - save_roc_curve (bool): Whether to save the ROC curve plot.
+    - save_path (str): Directory to save evaluation results.
+
+    Returns:
+    - report (dict): Classification report as a dictionary.
+    """
+    os.makedirs(save_path, exist_ok=True)
+    
+    X_test = test_df[feature_cols].values.astype(np.float32)
+    y_test = test_df[label_col]
+    y_test_encoded = y_test.map(label_mapping).astype(int).values
+    
+    # Initialize predictions array
+    y_pred = []
     y_scores = []
     
-    # Reset environment
-    current_states, current_labels = env.reset()
-    done = False
-
-    while not done:
-        # Get state and true label
-        if current_states is None or len(current_states) == 0:
-            break
-
-        # Get action probabilities from agent
-        state_tensor = torch.FloatTensor(current_states).to(agent.device)
-        action_probs = agent.get_action_probabilities(state_tensor)
-
-        # Store predictions and true labels
-        y_true.extend(current_labels)
-        y_scores.extend(action_probs.detach().cpu().numpy())
-
-        # Take action in environment
-        actions = np.argmax(action_probs.detach().cpu().numpy(), axis=1)
-        current_states, rewards, done, current_labels = env.step(actions)
-
-    # Convert to numpy arrays
-    y_true = np.array(y_true)
-    y_scores = np.array(y_scores)
-
-    # Ensure we have predictions
-    if len(y_true) == 0 or len(y_scores) == 0:
-        logger.error("No predictions generated during evaluation")
-        return None
-
-    # Generate confusion matrix
-    y_pred = np.argmax(y_scores, axis=1)
+    # Batch processing
+    logger.info("Starting batch prediction for RL Agent...")
+    for start in range(0, len(X_test), batch_size):
+        end = start + batch_size
+        X_batch = X_test[start:end]
+        inputs = {session.get_inputs()[0].name: X_batch}
+        outputs = session.run(None, inputs)
+        y_pred_batch = np.argmax(outputs[0], axis=1)
+        y_pred.extend(y_pred_batch)
+        y_scores.extend(outputs[0])  # Assuming outputs[0] contains raw scores or probabilities
+    logger.info("Batch prediction completed.")
     
-    # Convert numeric predictions to label names
-    inv_label_dict = {v: k for k, v in label_dict.items()}
-    y_true_labels = np.array([inv_label_dict[y] for y in y_true])
-    y_pred_labels = np.array([inv_label_dict[y] for y in y_pred])
+    classes = list(label_mapping.keys())
     
-    # Generate confusion matrix with actual labels
+    # Map predictions back to original labels
+    y_pred_labels = [classes[pred] for pred in y_pred]
+    
+    # Generate Classification Report
+    report = classification_report(y_test_encoded, y_pred, target_names=classes, output_dict=True)
+    report_df = pd.DataFrame(report).transpose()
+    report_csv_path = os.path.join(save_path, 'rl_classification_report.csv')
+    report_df.to_csv(report_csv_path)
+    logger.info(f"RL Classification report saved to {report_csv_path}")
+    
+    # Return metrics in the expected structure
+    metrics = {
+        'accuracy': report['accuracy'],
+        'per_class': {}
+    }
+    
+    for class_name in classes:
+        if class_name in report:
+            metrics['per_class'][class_name] = {
+                'precision': report[class_name]['precision'],
+                'recall': report[class_name]['recall'],
+                'f1-score': report[class_name]['f1-score']
+            }
+    
+    return metrics
+    
+    # Generate Confusion Matrix
+    cm = confusion_matrix(y_test_encoded, y_pred)
+    cm_normalized = confusion_matrix(y_test_encoded, y_pred, normalize='true')
+    
     if save_confusion_matrix:
-        cm = confusion_matrix(y_true_labels, y_pred_labels)
-        class_names = list(label_dict.keys())  # Use actual label names
-        plot_confusion_matrix(cm, class_names, save_path)
-        logger.info(f"RL Confusion matrix saved to {save_path}/rl_confusion_matrix.png")
+        plt.figure(figsize=(10,8))
+        sns.heatmap(cm_normalized, 
+                   annot=True, 
+                   fmt='.2f', 
+                   cmap='Blues', 
+                   xticklabels=classes, 
+                   yticklabels=classes)
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        plt.title('RL Confusion Matrix (Normalized %)')
 
-    # Calculate ROC curves only if we have enough samples
-    if save_roc_curves and len(y_true) > 1:
+        # Add text annotations for actual counts
+        for i in range(len(classes)):
+            for j in range(len(classes)):
+                plt.text(j + 0.2, i + 0.7, f'(n={cm[i,j]})', 
+                        color='black', fontsize=9)
+        
+        cm_path = os.path.join(save_path, 'rl_confusion_matrix.png')
+        plt.tight_layout()
+        plt.savefig(cm_path)
+        plt.close()
+        logger.info(f"RL Confusion matrix saved to {cm_path}")
+    
+    # Generate ROC Curve (if applicable)
+    if save_roc_curve:
         try:
-            # One-hot encode true labels
-            y_true_binarized = label_binarize(y_true, classes=range(len(label_dict)))
+            # Binarize the output
+            y_test_binarized = label_binarize(y_test_encoded, classes=range(len(label_mapping)))
             
             # Compute ROC curve and ROC area for each class
             fpr = dict()
             tpr = dict()
             roc_auc = dict()
+            for i in range(len(label_mapping)):
+                fpr[i], tpr[i], _ = roc_curve(y_test_binarized[:, i], y_scores[:, i])
+                roc_auc[i] = auc(fpr[i], tpr[i])
             
-            for i in range(len(label_dict)):
-                if i in y_true:  # Only calculate for classes that exist in y_true
-                    fpr[i], tpr[i], _ = roc_curve(y_true_binarized[:, i], y_scores[:, i])
-                    roc_auc[i] = auc(fpr[i], tpr[i])
+            # Plot ROC curves
+            plt.figure(figsize=(10,8))
+            for i, class_name in enumerate(classes):
+                plt.plot(fpr[i], tpr[i], label=f'{class_name} (AUC = {roc_auc[i]:.2f})')
             
-            plot_roc_curves(fpr, tpr, roc_auc, list(label_dict.keys()), save_path)
+            plt.plot([0, 1], [0, 1], 'k--')
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('RL Receiver Operating Characteristic')
+            plt.legend(loc="lower right")
             
+            roc_path = os.path.join(save_path, 'rl_roc_curve.png')
+            plt.savefig(roc_path)
+            plt.close()
+            logger.info(f"RL ROC curve saved to {roc_path}")
         except Exception as e:
-            logger.warning(f"Could not generate ROC curves: {str(e)}")
-
-    # Generate classification report with actual labels
-    clf_report = classification_report(y_true_labels, y_pred_labels, output_dict=True)
+            logger.warning(f"Could not generate ROC curves for RL Agent: {str(e)}")
     
-    # Save classification report
-    report_path = os.path.join(save_path, 'rl_classification_report.csv')
-    pd.DataFrame(clf_report).transpose().to_csv(report_path)
-    logger.info(f"RL Classification report saved to {report_path}")
-
-    return {
-        'y_true': y_true_labels,  # Return actual labels instead of numbers
-        'y_pred': y_pred_labels,
-        'y_scores': y_scores,
-        'classification_report': clf_report
-    }
+    return report
 

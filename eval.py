@@ -13,7 +13,8 @@ import pandas as pd
 from agents.binary_agent import BinaryAgent
 from agents.base_agent import Agent
 from utils.evaluation import evaluate_binary_classifier, evaluate_rl_agent
-import onnxruntime as ort  # Import ONNX Runtime
+import onnxruntime as ort
+import joblib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -85,15 +86,6 @@ def main():
     with open('processed_data/multi_class_classification/label_dict.json', 'r') as f:
         multi_label_dict = json.load(f)
 
-    # Initialize binary agent
-    binary_agent = BinaryAgent(
-        feature_cols=binary_feature_cols,
-        label_col='Threat',
-        model_path=binary_model_path,
-        class_weights_path='models/binary_class_weights.json',
-        label_dict_path='models/binary_label_dict.json'
-    )
-
     # Load feature columns from JSON to ensure consistency
     with open('models/rl_dqn_model_features.json', 'r') as f:
         multi_feature_cols = json.load(f)
@@ -109,33 +101,41 @@ def main():
     rl_agent.qnetwork_local.load_state_dict(torch.load(rl_model_path, map_location='cpu'))
     rl_agent.qnetwork_local.eval()
 
-    # Load ONNX models
-    binary_onnx_path = 'models/binary_classifier.onnx'
+    # Load ONNX model
     rl_onnx_path = 'models/rl_dqn_model.onnx'
-    '''
-    binary_session = None #load_onnx_model(binary_onnx_path)
-    if binary_session is None:
-        logger.error("Binary Classifier ONNX model could not be loaded. Please ensure the model is exported correctly.")
-        return
-    '''
-    rl_session = load_onnx_model(rl_onnx_path)
-    logger.info(f"Loaded RL Model ONNX model from {rl_onnx_path}")
-    '''
-    # Evaluate binary classifier using ONNX
-    logger.info("Evaluating Binary Classifier using ONNX model...")
-    binary_report = evaluate_binary_classifier_onnx(
-        session=binary_session,
-        test_df=binary_test_df,
+    
+    # Initialize binary agent
+    binary_agent = BinaryAgent(
         feature_cols=binary_feature_cols,
         label_col='Threat',
-        label_mapping=binary_label_dict
+        model_path=binary_model_path,
+        class_weights_path='models/binary_class_weights.json',
+        label_dict_path='models/binary_label_dict.json'
     )
-    '''
     
-    # Evaluate RL agent using ONNX
+    # Load binary classifier model using joblib
+    binary_model = joblib.load(binary_model_path)
+    binary_agent.model = binary_model  # Assign the loaded model to the agent
+    logger.info(f"Loaded Binary Classifier model from {binary_model_path}")
+
+    # Evaluate binary classifier using the agent
+    logger.info("Evaluating Binary Classifier using the loaded model...")
+    binary_report = evaluate_binary_classifier(
+        binary_agent,  # Pass the binary_agent as the first positional argument
+        binary_test_df=binary_test_df,
+        batch_size=256,
+        save_confusion_matrix=True,
+        save_roc_curve=True,
+        save_path='results/binary_classification'
+    )
+
+    rl_session = load_onnx_model(rl_onnx_path)
+    logger.info(f"Loaded RL Model ONNX model from {rl_onnx_path}")
+    
+    # Evaluate RL agent using the new evaluate_rl_agent function
     logger.info("Evaluating Multi-Class Classifier using ONNX model...")
-    multi_report = evaluate_rl_agent_onnx(
-        session=rl_session,
+    multi_report = evaluate_rl_agent(
+        session=rl_session,  # Pass the ONNX session
         test_df=multi_test_df,
         feature_cols=multi_feature_cols,
         label_col='Label',
@@ -144,7 +144,7 @@ def main():
 
     # Log evaluation reports
     logger.info("Binary Classification Report:")
-    #logger.info("\n" + json.dumps(binary_report, indent=2))
+    logger.info("\n" + json.dumps(binary_report, indent=2))
     logger.info("Multi-Class Classification Report:")
     logger.info("\n" + json.dumps(multi_report, indent=2))
 

@@ -177,14 +177,21 @@ def main():
         logger.info(f"Saving evaluation results to: {eval_save_path}")
         
         # Run evaluation
+        # Initialize ONNX Session for evaluation
+        onnx_model_path = "models/rl_dqn_model.onnx"
+        import onnxruntime as ort
+        session = ort.InferenceSession(onnx_model_path)
+
+        # Run evaluation with correct parameters
         metrics = evaluate_rl_agent(
-            agent=agent,
-            env=eval_env,
-            label_dict=label_dict,
-            multi_test_df=multi_test_df,
+            session=session,
+            test_df=multi_test_df,
+            feature_cols=multi_feature_cols,
+            label_col='Label',
+            label_mapping=label_dict,
             batch_size=100,
             save_confusion_matrix=True,
-            save_roc_curves=True,
+            save_roc_curve=True,
             save_path=eval_save_path
         )
 
@@ -194,10 +201,9 @@ def main():
         # Log evaluation results
         if metrics:
             logger.info("Evaluation Results:")
-            logger.info(f"Accuracy: {metrics['classification_report']['accuracy']:.4f}")
+            logger.info(f"Accuracy: {metrics['accuracy']:.4f}")
             logger.info("\nPer-class Results:")
-            for class_name in label_dict.keys():
-                class_metrics = metrics['classification_report'][class_name]
+            for class_name, class_metrics in metrics['per_class'].items():
                 logger.info(f"\n{class_name}:")
                 logger.info(f"Precision: {class_metrics['precision']:.4f}")
                 logger.info(f"Recall: {class_metrics['recall']:.4f}")
