@@ -26,28 +26,57 @@ def explain_binary_predictions(model, data: pd.DataFrame, feature_names: List[st
         
         # Generate visualizations
         if save_path:
-            logger.debug("Generating SHAP summary plot for binary classification.")
+            # Bar plot
             plt.figure(figsize=(12, 8))
-            if isinstance(shap_values, list) and len(shap_values) > 1:
-                logger.debug(f"shap_values is a list with {len(shap_values)} elements.")
-                # Show SHAP values for positive class (Malicious)
+            # For binary classification, use shap_values directly
+            if isinstance(shap_values, np.ndarray):
                 shap.summary_plot(
-                    shap_values[1],
+                    shap_values,
                     data.values,
                     feature_names=feature_names,
-                    plot_type="bar"  # Removed show=False
+                    plot_type="bar",
+                    show=False
                 )
-                plt.title("Binary Classification SHAP Summary")
-                plt.tight_layout()
-                summary_path = f"{save_path}/binary_shap_summary.png"
-                plt.savefig(summary_path, dpi=150, bbox_inches='tight')
-                logger.info(f"Binary SHAP summary plot saved to {summary_path}")
-                plt.show()  # Add show call
-                plt.close()
             else:
-                logger.warning("shap_values is not a list or does not have expected elements.")
-        else:
-            logger.warning("Save path not provided. Skipping saving SHAP summary plot.")
+                # If shap_values is a list (typical for tree models), use positive class
+                shap.summary_plot(
+                    shap_values[1] if len(shap_values) > 1 else shap_values[0],
+                    data.values,
+                    feature_names=feature_names,
+                    plot_type="bar",
+                    show=False
+                )
+            
+            plt.title("Binary Classification SHAP Summary (Impact Magnitude)")
+            plt.tight_layout()
+            summary_path = f"{save_path}/binary_shap_summary.png"
+            plt.savefig(summary_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            
+            # Beeswarm plot
+            plt.figure(figsize=(12, 8))
+            if isinstance(shap_values, np.ndarray):
+                shap.summary_plot(
+                    shap_values,
+                    data.values,
+                    feature_names=feature_names,
+                    show=False
+                )
+            else:
+                shap.summary_plot(
+                    shap_values[1] if len(shap_values) > 1 else shap_values[0],
+                    data.values,
+                    feature_names=feature_names,
+                    show=False
+                )
+            
+            plt.title("Binary Classification SHAP Summary (Feature Values)")
+            plt.tight_layout()
+            beeswarm_path = f"{save_path}/binary_shap_beeswarm.png"
+            plt.savefig(beeswarm_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"Binary SHAP summary plots saved to {save_path}")
         
         return shap_values
         
@@ -102,25 +131,25 @@ def generate_binary_explanation(shap_values: np.ndarray, features: pd.DataFrame,
     """Generate explanations for binary classification."""
     try:
         explanations = []
-        sample_idx = 0
         
-        for class_idx, class_name in enumerate(class_names):
-            if isinstance(shap_values, list):
-                # Use appropriate class SHAP values
-                abs_shap = np.abs(shap_values[class_idx][sample_idx])
-            else:
-                abs_shap = np.abs(shap_values[sample_idx])
-                if class_idx == 1:  # For malicious class
-                    abs_shap = -abs_shap  # Negate values for opposite class
+        # Handle both list and numpy array formats
+        if isinstance(shap_values, list):
+            pos_shap = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+            neg_shap = shap_values[0] if len(shap_values) > 1 else -shap_values[0]
+        else:
+            pos_shap = shap_values
+            neg_shap = -shap_values
             
+        # Process both classes
+        for class_idx, (class_name, shap_vals) in enumerate(zip(class_names, [neg_shap, pos_shap])):
             feature_importance = pd.DataFrame({
                 'feature': features.columns,
-                'importance': abs_shap
+                'importance': np.abs(shap_vals[0] if shap_vals.ndim > 1 else shap_vals)
             })
             
             feature_importance = feature_importance.sort_values('importance', ascending=False)
             top_features = feature_importance.head(top_k)
-            confidence = float(np.sum(np.abs(abs_shap)))
+            confidence = float(np.sum(np.abs(shap_vals[0] if shap_vals.ndim > 1 else shap_vals)))
             
             explanations.append({
                 'class': class_name,

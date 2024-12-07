@@ -79,13 +79,13 @@ def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str],
             
             if save_path and shap_values is not None:
                 try:
-                    plt.figure(figsize=(12, 8))
-                    
                     # Handle 3D SHAP values for multi-class
                     if isinstance(shap_values, np.ndarray) and len(shap_values.shape) == 3:
                         # Average absolute SHAP values across classes
                         avg_shap = np.abs(shap_values).mean(axis=2)
                         
+                        # Bar plot
+                        plt.figure(figsize=(12, 8))
                         shap.summary_plot(
                             avg_shap,
                             data_values[:min(10, len(data))],
@@ -93,12 +93,27 @@ def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str],
                             plot_type="bar",
                             show=False
                         )
-                        plt.title("RL Model SHAP Summary (Averaged Across Classes)")
+                        plt.title("RL Model SHAP Summary (Impact Magnitude)")
                         plt.tight_layout()
                         summary_path = f"{save_path}/rl_shap_summary.png"
                         plt.savefig(summary_path, dpi=150, bbox_inches='tight')
                         plt.close()
-                        logger.info(f"RL SHAP summary plot saved to {summary_path}")
+                        
+                        # Beeswarm plot
+                        plt.figure(figsize=(12, 8))
+                        shap.summary_plot(
+                            avg_shap,
+                            data_values[:min(10, len(data))],
+                            feature_names=feature_names,
+                            show=False
+                        )
+                        plt.title("RL Model SHAP Summary (Feature Values)")
+                        plt.tight_layout()
+                        beeswarm_path = f"{save_path}/rl_shap_beeswarm.png"
+                        plt.savefig(beeswarm_path, dpi=150, bbox_inches='tight')
+                        plt.close()
+                        
+                        logger.info(f"RL SHAP summary plots saved to {save_path}")
                     else:
                         logger.warning(f"Unexpected SHAP values format: {type(shap_values)}")
                         if isinstance(shap_values, np.ndarray):
