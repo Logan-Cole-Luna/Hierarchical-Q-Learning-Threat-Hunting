@@ -36,6 +36,7 @@ import time
 from collections import Counter
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
+from utils.xai_utils import explain_predictions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -208,6 +209,24 @@ def main():
                 logger.info(f"Precision: {class_metrics['precision']:.4f}")
                 logger.info(f"Recall: {class_metrics['recall']:.4f}")
                 logger.info(f"F1-score: {class_metrics['f1-score']:.4f}")
+
+            # Add XAI analysis after evaluation
+            logger.info("\nGenerating XAI visualizations...")
+            xai_save_path = os.path.join(eval_save_path, 'xai')
+            os.makedirs(xai_save_path, exist_ok=True)
+            
+            # Generate SHAP explanations with optimized parameters
+            shap_values = explain_predictions(
+                model=session,
+                data=multi_test_df[multi_feature_cols].sample(n=1000, random_state=42),  # Sample subset
+                feature_names=multi_feature_cols,
+                num_samples=50,  # Reduced number of samples
+                save_path=xai_save_path,
+                max_samples=1000  # Limit maximum samples
+            )
+            
+            if shap_values is not None:
+                logger.info("XAI visualizations saved to: " + xai_save_path)
 
         # Plot RL Training Metrics
         rl_metrics_plot_path = os.path.join("results", "multi_class_classification", "rl_training_metrics.png")

@@ -17,6 +17,12 @@ import json
 import os
 import logging
 import onnxruntime as ort
+import warnings
+
+# Add these at the top of the file
+warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.metrics._classification')
+warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.linear_model')
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +213,8 @@ def plot_roc_curves(fpr, tpr, roc_auc, class_names, save_path):
     plt.savefig(save_file)
     plt.close()
 
+from utils.xai_utils import explain_predictions, analyze_misclassifications, generate_decision_explanation
+
 def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, batch_size=256, save_confusion_matrix=True, save_roc_curve=True, save_path='results/multi_class_classification'):
     """
     Evaluates the RL agent using the provided ONNX model.
@@ -252,8 +260,14 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
     # Map predictions back to original labels
     y_pred_labels = [classes[pred] for pred in y_pred]
     
-    # Generate Classification Report
-    report = classification_report(y_test_encoded, y_pred, target_names=classes, output_dict=True)
+    # Generate Classification Report with zero_division parameter
+    report = classification_report(
+        y_test_encoded, 
+        y_pred, 
+        target_names=classes, 
+        output_dict=True,
+        zero_division=0  # Add this parameter
+    )
     report_df = pd.DataFrame(report).transpose()
     report_csv_path = os.path.join(save_path, 'rl_classification_report.csv')
     report_df.to_csv(report_csv_path)
@@ -273,8 +287,63 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
                 'f1-score': report[class_name]['f1-score']
             }
     
-    return metrics
+    # Get subset of data for SHAP analysis
+    max_samples = 500  # Limit samples for SHAP analysis
+    shap_subset_indices = np.random.choice(len(test_df), min(max_samples, len(test_df)), replace=False)
+    shap_subset_df = test_df.iloc[shap_subset_indices]
     
+    # Get predictions for the subset
+    shap_subset_pred = np.array(y_pred)[shap_subset_indices]
+    shap_subset_true = y_test_encoded[shap_subset_indices]
+    
+    # Temporarily reduce logging level for SHAP
+    logging.getLogger('shap').setLevel(logging.WARNING)
+    logging.getLogger('sklearn').setLevel(logging.WARNING)
+    
+    # Generate SHAP explanations for subset
+    logger.info("Generating XAI explanations...")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            shap_values = explain_predictions(
+                model=session,
+                data=shap_subset_df[feature_cols],
+                feature_names=feature_cols,
+                save_path=save_path
+            )
+    except Exception as e:
+        logger.warning(f"SHAP explanation generation failed: {str(e)}")
+        shap_values = None
+    
+    if shap_values is not None:
+        # Analyze misclassifications on subset
+        analyze_misclassifications(
+            predictions=shap_subset_pred,
+            true_labels=shap_subset_true,
+            shap_values=shap_values,
+            feature_names=feature_cols,
+            save_path=save_path
+        )
+        
+        # Generate example explanations for all classes
+        sample_idx = 0
+        explanations = generate_decision_explanation(
+            shap_values=shap_values,
+            features=shap_subset_df[feature_cols],
+            prediction=shap_subset_pred[sample_idx],
+            class_names=list(label_mapping.keys())
+        )
+        logger.info("\nExample Prediction Explanations:")
+        for explanation in explanations:
+            if explanation['is_predicted_class']:
+                logger.info(f"\nPredicted Class: {explanation['class']}")
+            else:
+                logger.info(f"\nClass: {explanation['class']}")
+            logger.info(f"Confidence: {explanation['confidence']:.4f}")
+            logger.info("Top Features:")
+            for feature in explanation['top_features']:
+                logger.info(f"  - {feature['feature']}: {feature['importance']:.4f}")
+
     # Generate Confusion Matrix
     cm = confusion_matrix(y_test_encoded, y_pred)
     cm_normalized = confusion_matrix(y_test_encoded, y_pred, normalize='true')
@@ -306,36 +375,35 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
     # Generate ROC Curve (if applicable)
     if save_roc_curve:
         try:
-            # Binarize the output
-            y_test_binarized = label_binarize(y_test_encoded, classes=range(len(label_mapping)))
+            # Convert predictions to one-hot encoded format
+            y_scores = np.array(y_scores)
+            y_test_binarized = label_binarize(y_test_encoded, classes=np.arange(len(label_mapping)))
             
             # Compute ROC curve and ROC area for each class
-            fpr = dict()
-            tpr = dict()
-            roc_auc = dict()
+            fpr = {}
+            tpr = {}
+            roc_auc = {}
+            
             for i in range(len(label_mapping)):
-                fpr[i], tpr[i], _ = roc_curve(y_test_binarized[:, i], y_scores[:, i])
+                # Ensure proper array indexing
+                current_class_scores = y_scores[:, i]
+                current_class_true = y_test_binarized[:, i]
+                
+                fpr[i], tpr[i], _ = roc_curve(current_class_true, current_class_scores)
                 roc_auc[i] = auc(fpr[i], tpr[i])
             
             # Plot ROC curves
             plt.figure(figsize=(10,8))
-            for i, class_name in enumerate(classes):
-                plt.plot(fpr[i], tpr[i], label=f'{class_name} (AUC = {roc_auc[i]:.2f})')
+            colors = plt.cm.get_cmap('tab10')(np.linspace(0, 1, len(label_mapping)))
             
-            plt.plot([0, 1], [0, 1], 'k--')
-            plt.xlim([0.0, 1.0])
-            plt.ylim([0.0, 1.05])
-            plt.xlabel('False Positive Rate')
-            plt.ylabel('True Positive Rate')
-            plt.title('RL Receiver Operating Characteristic')
-            plt.legend(loc="lower right")
-            
-            roc_path = os.path.join(save_path, 'rl_roc_curve.png')
-            plt.savefig(roc_path)
-            plt.close()
-            logger.info(f"RL ROC curve saved to {roc_path}")
+            for i, (class_name, color) in enumerate(zip(classes, colors)):
+                plt.plot(fpr[i], tpr[i], color=color, lw=2,
+                        label=f'{class_name} (AUC = {roc_auc[i]:.2f})')
+                        
         except Exception as e:
             logger.warning(f"Could not generate ROC curves for RL Agent: {str(e)}")
-    
+            logger.debug(f"Shape of y_scores: {np.array(y_scores).shape}")
+            logger.debug(f"Shape of y_test_binarized: {y_test_binarized.shape}")
+
     return report
 
