@@ -15,6 +15,11 @@ from agents.base_agent import Agent
 from utils.evaluation import evaluate_binary_classifier, evaluate_rl_agent
 import onnxruntime as ort
 import joblib
+import matplotlib
+import matplotlib.pyplot as plt
+
+# Ensure matplotlib is using a suitable backend
+matplotlib.use('TkAgg')  # Or 'Agg' if running without a display server
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')

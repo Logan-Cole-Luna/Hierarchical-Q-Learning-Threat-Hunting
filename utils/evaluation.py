@@ -18,6 +18,8 @@ import os
 import logging
 import onnxruntime as ort
 import warnings
+from utils.binary_xai_utils import explain_binary_predictions, analyze_binary_misclassifications, generate_binary_explanation
+from utils.rl_xai_utils import explain_rl_predictions, analyze_rl_misclassifications, generate_rl_explanation
 
 # Add these at the top of the file
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.metrics._classification')
@@ -144,6 +146,56 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
         plt.close()
         logger.info(f"ROC curve saved to {roc_path}")
     
+    # SHAP analysis section
+    try:
+        # Use a smaller subset for SHAP analysis
+        max_samples = 100  # Reduced from 500
+        shap_subset_indices = np.random.choice(len(binary_test_df), min(max_samples, len(binary_test_df)), replace=False)
+        shap_subset_df = binary_test_df.iloc[shap_subset_indices]
+        
+        shap_subset_pred = np.array(y_pred)[shap_subset_indices]
+        shap_subset_true = y_test_encoded[shap_subset_indices]
+        
+        shap_values = explain_binary_predictions(
+            model=binary_agent.model,
+            data=shap_subset_df[binary_agent.feature_cols],
+            feature_names=binary_agent.feature_cols,
+            save_path=save_path,
+            max_samples=max_samples  # Pass the max_samples parameter
+        )
+        
+        if shap_values is not None:
+            analyze_binary_misclassifications(
+                predictions=shap_subset_pred[:max_samples],  # Limit to max_samples
+                true_labels=shap_subset_true[:max_samples],  # Limit to max_samples
+                shap_values=shap_values,
+                feature_names=binary_agent.feature_cols,
+                save_path=save_path
+            )
+            
+            # Add this section to generate and log explanations
+            sample_idx = 0
+            explanations = generate_binary_explanation(
+                shap_values=shap_values,
+                features=shap_subset_df[binary_agent.feature_cols],
+                prediction=shap_subset_pred[sample_idx],
+                class_names=['Benign', 'Malicious']
+            )
+            
+            logger.info("\nExample Binary Prediction Explanations:")
+            for explanation in explanations:
+                if explanation['is_predicted_class']:
+                    logger.info(f"\nPredicted Class: {explanation['class']}")
+                else:
+                    logger.info(f"\nClass: {explanation['class']}")
+                logger.info(f"Confidence: {explanation['confidence']:.4f}")
+                logger.info("Top Features:")
+                for feature in explanation['top_features']:
+                    logger.info(f"  - {feature['feature']}: {feature['importance']:.4f}")
+
+    except Exception as e:
+        logger.warning(f"Binary SHAP analysis failed: {str(e)}")
+
     return report
 
 def plot_confusion_matrix(cm, class_names, save_path):
@@ -288,13 +340,13 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
             }
     
     # Get subset of data for SHAP analysis
-    max_samples = 500  # Limit samples for SHAP analysis
+    max_samples = 50  # Limit samples for SHAP analysis
     shap_subset_indices = np.random.choice(len(test_df), min(max_samples, len(test_df)), replace=False)
     shap_subset_df = test_df.iloc[shap_subset_indices]
     
-    # Get predictions for the subset
-    shap_subset_pred = np.array(y_pred)[shap_subset_indices]
-    shap_subset_true = y_test_encoded[shap_subset_indices]
+    # Ensure all arrays have consistent sizes
+    shap_subset_pred = np.array(y_pred)[shap_subset_indices][:max_samples]
+    shap_subset_true = y_test_encoded[shap_subset_indices][:max_samples]
     
     # Temporarily reduce logging level for SHAP
     logging.getLogger('shap').setLevel(logging.WARNING)
@@ -305,19 +357,20 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            shap_values = explain_predictions(
-                model=session,
-                data=shap_subset_df[feature_cols],
+            shap_values = explain_rl_predictions(
+                model=session,  # Pass the RL session instead of binary_agent.model
+                data=shap_subset_df[feature_cols][:max_samples],  # Limit input data
                 feature_names=feature_cols,
-                save_path=save_path
+                save_path=save_path,
+                max_samples=max_samples
             )
     except Exception as e:
         logger.warning(f"SHAP explanation generation failed: {str(e)}")
         shap_values = None
     
     if shap_values is not None:
-        # Analyze misclassifications on subset
-        analyze_misclassifications(
+        # Use RL-specific analysis functions
+        analyze_rl_misclassifications(
             predictions=shap_subset_pred,
             true_labels=shap_subset_true,
             shap_values=shap_values,
@@ -325,9 +378,9 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
             save_path=save_path
         )
         
-        # Generate example explanations for all classes
+        # Generate example explanations using RL-specific function
         sample_idx = 0
-        explanations = generate_decision_explanation(
+        explanations = generate_rl_explanation(
             shap_values=shap_values,
             features=shap_subset_df[feature_cols],
             prediction=shap_subset_pred[sample_idx],
