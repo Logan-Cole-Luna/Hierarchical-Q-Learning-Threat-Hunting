@@ -341,12 +341,12 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
     
     # Get subset of data for SHAP analysis
     max_samples = 50  # Limit samples for SHAP analysis
-    shap_subset_indices = np.random.choice(len(test_df), min(max_samples, len(test_df)), replace=False)
-    shap_subset_df = test_df.iloc[shap_subset_indices]
+    shap_subset_df = test_df.sample(n=min(max_samples, len(test_df)), random_state=42)
+    shap_subset_indices = shap_subset_df.index
     
-    # Ensure all arrays have consistent sizes
-    shap_subset_pred = np.array(y_pred)[shap_subset_indices][:max_samples]
-    shap_subset_true = y_test_encoded[shap_subset_indices][:max_samples]
+    # Ensure predictions and true labels match SHAP subset
+    shap_subset_pred = np.array(y_pred)[shap_subset_indices]
+    shap_subset_true = y_test_encoded[shap_subset_indices]
     
     # Temporarily reduce logging level for SHAP
     logging.getLogger('shap').setLevel(logging.WARNING)
@@ -359,13 +359,22 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
             warnings.simplefilter("ignore")
             shap_values = explain_rl_predictions(
                 model=session,  # Pass the RL session instead of binary_agent.model
-                data=shap_subset_df[feature_cols][:max_samples],  # Limit input data
+                data=shap_subset_df[feature_cols],  # Limit input data
                 feature_names=feature_cols,
                 save_path=save_path,
                 max_samples=max_samples
             )
+            
+            if shap_values is not None:
+                analyze_rl_misclassifications(
+                    predictions=shap_subset_pred,
+                    true_labels=shap_subset_true,
+                    shap_values=shap_values,
+                    feature_names=feature_cols,
+                    save_path=save_path
+                )
     except Exception as e:
-        logger.warning(f"SHAP explanation generation failed: {str(e)}")
+        logger.warning(f"SHAP analysis failed: {str(e)}")
         shap_values = None
     
     if shap_values is not None:

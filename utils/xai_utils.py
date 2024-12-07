@@ -72,20 +72,47 @@ def explain_predictions(model, data: pd.DataFrame, feature_names: List[str],
             )
             
             # Generate visualizations
-            if save_path:
+            if save_path and shap_values is not None:
                 plt.figure(figsize=(12, 8))
+                
+                # Handle different SHAP value formats
                 if isinstance(shap_values, list):
-                    # For multi-class, use first class's SHAP values
-                    shap_data = shap_values[0] if isinstance(shap_values, list) else shap_values
+                    # For tree-based models returning list
                     shap.summary_plot(
-                        shap_data,
-                        data_values[:min(500, len(data))],
+                        shap_values[1] if len(shap_values) > 1 else shap_values[0],
+                        data.values,
                         feature_names=feature_names,
+                        plot_type="bar",
                         show=False
                     )
+                else:
+                    # For neural networks returning ndarray
+                    if len(shap_values.shape) == 3:
+                        # Multi-class case: average across classes
+                        avg_shap = np.abs(shap_values).mean(axis=2)
+                        shap.summary_plot(
+                            avg_shap,
+                            data.values,
+                            feature_names=feature_names,
+                            plot_type="bar",
+                            show=False
+                        )
+                    else:
+                        # Binary case
+                        shap.summary_plot(
+                            shap_values,
+                            data.values,
+                            feature_names=feature_names,
+                            plot_type="bar",
+                            show=False
+                        )
+                
+                plt.title("SHAP Feature Importance")
                 plt.tight_layout()
-                plt.savefig(f"{save_path}/shap_summary.png", dpi=150)
+                summary_path = f"{save_path}/shap_summary.png"
+                plt.savefig(summary_path, dpi=150, bbox_inches='tight')
                 plt.close()
+                logger.info(f"SHAP summary plot saved to {summary_path}")
             
             return shap_values
             
@@ -95,19 +122,47 @@ def explain_predictions(model, data: pd.DataFrame, feature_names: List[str],
             shap_values = explainer.shap_values(data.values)
         
         # Generate visualizations
-        if save_path:
+        if save_path and shap_values is not None:
             plt.figure(figsize=(12, 8))
+            
+            # Handle different SHAP value formats
             if isinstance(shap_values, list):
-                # For multi-class output
-                shap.summary_plot(shap_values[0], data.values, feature_names=feature_names, 
-                                show=False, plot_size=(12, 8))
+                # For tree-based models returning list
+                shap.summary_plot(
+                    shap_values[1] if len(shap_values) > 1 else shap_values[0],
+                    data.values,
+                    feature_names=feature_names,
+                    plot_type="bar",
+                    show=False
+                )
             else:
-                # For single-class output
-                shap.summary_plot(shap_values, data.values, feature_names=feature_names, 
-                                show=False, plot_size=(12, 8))
+                # For neural networks returning ndarray
+                if len(shap_values.shape) == 3:
+                    # Multi-class case: average across classes
+                    avg_shap = np.abs(shap_values).mean(axis=2)
+                    shap.summary_plot(
+                        avg_shap,
+                        data.values,
+                        feature_names=feature_names,
+                        plot_type="bar",
+                        show=False
+                    )
+                else:
+                    # Binary case
+                    shap.summary_plot(
+                        shap_values,
+                        data.values,
+                        feature_names=feature_names,
+                        plot_type="bar",
+                        show=False
+                    )
+            
+            plt.title("SHAP Feature Importance")
             plt.tight_layout()
-            plt.savefig(f"{save_path}/shap_summary.png", dpi=150)
+            summary_path = f"{save_path}/shap_summary.png"
+            plt.savefig(summary_path, dpi=150, bbox_inches='tight')
             plt.close()
+            logger.info(f"SHAP summary plot saved to {summary_path}")
             
         return shap_values
         
