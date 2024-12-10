@@ -1,3 +1,21 @@
+"""
+Binary Classification Explainable AI (XAI) Utilities
+
+This module provides utilities for generating explanations of binary classification predictions
+using SHAP (SHapley Additive exPlanations) values. It parallels the multi-class implementation
+in rl_xai_utils.py but is specifically optimized for binary classification tasks.
+
+Key Features:
+- SHAP value generation for binary classifiers
+- Misclassification analysis 
+- Feature importance visualization
+- Human-readable explanations of model decisions
+
+See Also:
+    - utils/rl_xai_utils.py: Similar implementation for multi-class RL models
+    - utils/evaluation.py: Uses these utilities for model evaluation
+"""
+
 import shap
 import numpy as np
 import matplotlib
@@ -14,21 +32,35 @@ matplotlib.use('TkAgg')  # Or 'Agg' if running without a display server
 
 def explain_binary_predictions(model, data: pd.DataFrame, feature_names: List[str], 
                             save_path: str = None, max_samples: int = 1000):
-    """Generate SHAP explanations for binary classifier predictions."""
+    """
+    Generate SHAP explanations for binary classifier predictions.
+    
+    Similar to explain_rl_predictions() in rl_xai_utils.py but optimized for binary tasks.
+    Uses TreeExplainer instead of KernelExplainer since binary classifier is XGBoost-based.
+
+    Args:
+        model: Trained XGBoost binary classifier
+        data: Feature data to explain
+        feature_names: Names of input features
+        save_path: Directory to save visualizations
+        max_samples: Maximum samples to analyze (prevents memory issues)
+
+    Returns:
+        numpy.ndarray: SHAP values if successful, None if failed
+    """
     try:
         if len(data) > max_samples:
             data = data.sample(n=max_samples, random_state=42)
             logger.info(f"Subsampled data to {max_samples} samples for SHAP analysis")
 
-        # For XGBoost binary classifier
+        # Use TreeExplainer for XGBoost models (faster than KernelExplainer)
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(data.values)
         
-        # Generate visualizations
         if save_path:
-            # Bar plot
+            # Generate bar plot showing overall feature importance magnitudes
             plt.figure(figsize=(12, 8))
-            # For binary classification, use shap_values directly
+            # Handle both numpy array and list formats of SHAP values
             if isinstance(shap_values, np.ndarray):
                 shap.summary_plot(
                     shap_values,
@@ -53,7 +85,7 @@ def explain_binary_predictions(model, data: pd.DataFrame, feature_names: List[st
             plt.savefig(summary_path, dpi=150, bbox_inches='tight')
             plt.close()
             
-            # Beeswarm plot
+            # Generate beeswarm plot showing feature value impacts
             plt.figure(figsize=(12, 8))
             if isinstance(shap_values, np.ndarray):
                 shap.summary_plot(
@@ -87,7 +119,19 @@ def explain_binary_predictions(model, data: pd.DataFrame, feature_names: List[st
 def analyze_binary_misclassifications(predictions: np.ndarray, true_labels: np.ndarray, 
                                     shap_values: np.ndarray, feature_names: List[str], 
                                     save_path: str):
-    """Analyze misclassified samples for binary classification."""
+    """
+    Analyze misclassified samples to understand prediction errors.
+
+    Similar to analyze_rl_misclassifications() but focused on binary case.
+    See utils/rl_xai_utils.py for multi-class version.
+
+    Args:
+        predictions: Model's predicted labels
+        true_labels: Ground truth labels
+        shap_values: SHAP values from explain_binary_predictions()
+        feature_names: Names of input features
+        save_path: Directory to save visualizations
+    """
     try:
         predictions = np.array(predictions)
         true_labels = np.array(true_labels)
@@ -128,11 +172,26 @@ def analyze_binary_misclassifications(predictions: np.ndarray, true_labels: np.n
 def generate_binary_explanation(shap_values: np.ndarray, features: pd.DataFrame, 
                               prediction: int, class_names: List[str], 
                               top_k: int = 5) -> List[Dict]:
-    """Generate explanations for binary classification."""
+    """
+    Generate human-readable explanations of binary classification decisions.
+
+    Similar to generate_rl_explanation() but simplified for binary case.
+    See utils/rl_xai_utils.py for multi-class implementation.
+
+    Args:
+        shap_values: SHAP values from explain_binary_predictions()
+        features: Input feature DataFrame
+        prediction: Predicted class index (0 or 1)
+        class_names: List of class names ['benign', 'malicious']
+        top_k: Number of top features to include in explanation
+
+    Returns:
+        List[Dict]: Explanations for both classes, sorted by confidence
+    """
     try:
         explanations = []
         
-        # Handle both list and numpy array formats
+        # Handle both list format (from TreeExplainer) and numpy array format
         if isinstance(shap_values, list):
             pos_shap = shap_values[1] if len(shap_values) > 1 else shap_values[0]
             neg_shap = shap_values[0] if len(shap_values) > 1 else -shap_values[0]
@@ -140,7 +199,7 @@ def generate_binary_explanation(shap_values: np.ndarray, features: pd.DataFrame,
             pos_shap = shap_values
             neg_shap = -shap_values
             
-        # Process both classes
+        # Generate explanations for both negative and positive classes
         for class_idx, (class_name, shap_vals) in enumerate(zip(class_names, [neg_shap, pos_shap])):
             feature_importance = pd.DataFrame({
                 'feature': features.columns,

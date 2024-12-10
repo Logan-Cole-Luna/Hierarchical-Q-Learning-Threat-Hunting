@@ -265,7 +265,6 @@ def plot_roc_curves(fpr, tpr, roc_auc, class_names, save_path):
     plt.savefig(save_file)
     plt.close()
 
-from utils.xai_utils import explain_predictions, analyze_misclassifications, generate_decision_explanation
 
 def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, batch_size=256, save_confusion_matrix=True, save_roc_curve=True, save_path='results/multi_class_classification'):
     """
@@ -286,6 +285,13 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
     - report (dict): Classification report as a dictionary.
     """
     os.makedirs(save_path, exist_ok=True)
+    
+    # Ensure feature dimensions match the model's expectation
+    expected_features = session.get_inputs()[0].shape[1]
+    actual_features = len(feature_cols)
+    if actual_features != expected_features:
+        logger.error(f"Feature dimension mismatch: model expects {expected_features}, but got {actual_features}.")
+        return
     
     X_test = test_df[feature_cols].values.astype(np.float32)
     y_test = test_df[label_col]

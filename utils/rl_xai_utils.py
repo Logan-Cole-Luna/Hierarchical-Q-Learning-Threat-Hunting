@@ -1,3 +1,21 @@
+"""
+Reinforcement Learning Explainable AI (XAI) Utilities
+
+This module provides utilities for generating explanations of RL model predictions
+using SHAP (SHapley Additive exPlanations) values. It extends the binary classification
+implementation in binary_xai_utils.py to handle multi-class RL scenarios.
+
+Key Features:
+- SHAP value generation for RL models via KernelExplainer
+- Multi-class misclassification analysis
+- Feature importance visualization across all classes
+- Human-readable explanations of RL agent decisions
+
+See Also:
+    - utils/binary_xai_utils.py: Similar implementation for binary classification
+    - utils/evaluation.py: Uses these utilities for model evaluation
+"""
+
 import shap
 import numpy as np
 import matplotlib
@@ -16,13 +34,31 @@ logger = logging.getLogger(__name__)
 def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str], 
                          num_samples: int = 100, save_path: str = None,
                          max_samples: int = 1000):
-    """Generate SHAP explanations for RL model predictions."""
+    """
+    Generate SHAP explanations for RL model predictions.
+    
+    Similar to explain_binary_predictions() but uses KernelExplainer for ONNX models
+    and handles multi-class predictions. See binary_xai_utils.py for binary version.
+
+    Args:
+        model: ONNX model for RL agent
+        data: Feature data to explain
+        feature_names: Names of input features
+        num_samples: Number of background samples for SHAP
+        save_path: Directory to save visualizations
+        max_samples: Maximum samples to analyze (prevents memory issues)
+
+    Returns:
+        numpy.ndarray: SHAP values if successful, None if failed
+    """
     try:
+        # Subsample data if needed
         if len(data) > max_samples:
             data = data.sample(n=max_samples, random_state=42)
             logger.info(f"Subsampled data to {max_samples} samples for SHAP analysis")
         
         if isinstance(model, ort.InferenceSession):
+            # Configure ONNX prediction wrapper
             data_values = data.values.astype(np.float32)
             logger.debug(f"Data values shape: {data_values.shape}")
             
@@ -44,7 +80,7 @@ def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str],
                     logger.error(f"Error in model prediction: {str(e)}")
                     return None
             
-            # Test model prediction
+            # Initialize and test KernelExplainer
             test_pred = model_predict(background_values)
             if test_pred is None:
                 logger.error("Model prediction failed on background data")
@@ -59,7 +95,7 @@ def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str],
             )
             logger.info("KernelExplainer created successfully")
             
-            # Generate SHAP values with smaller nsamples for testing
+            # Generate and validate SHAP values
             try:
                 sample_data = data_values[:min(10, len(data))]
                 shap_values = explainer.shap_values(
@@ -77,6 +113,7 @@ def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str],
                 logger.error(f"Error generating SHAP values: {str(e)}")
                 return None
             
+            # Generate visualizations if requested
             if save_path and shap_values is not None:
                 try:
                     # Handle 3D SHAP values for multi-class
@@ -131,9 +168,21 @@ def explain_rl_predictions(model, data: pd.DataFrame, feature_names: List[str],
 def analyze_rl_misclassifications(predictions: np.ndarray, true_labels: np.ndarray, 
                                 shap_values: np.ndarray, feature_names: List[str], 
                                 save_path: str):
-    """Analyze misclassified samples for RL model."""
+    """
+    Analyze misclassified samples for RL model predictions.
+
+    Similar to analyze_binary_misclassifications() but handles multi-class case.
+    See binary_xai_utils.py for binary version.
+
+    Args:
+        predictions: Model's predicted labels
+        true_labels: Ground truth labels  
+        shap_values: SHAP values from explain_rl_predictions()
+        feature_names: Names of input features
+        save_path: Directory to save visualizations
+    """
     try:
-        # Ensure we only look at indices that exist in our shap_values
+        # Handle size mismatches
         if len(predictions) > len(shap_values):
             predictions = predictions[:len(shap_values)]
             true_labels = true_labels[:len(shap_values)]
@@ -145,7 +194,7 @@ def analyze_rl_misclassifications(predictions: np.ndarray, true_labels: np.ndarr
             logger.info("No misclassifications found in the analyzed subset.")
             return
 
-        # Handle 3D SHAP values
+        # Handle 3D SHAP values for multi-class
         if isinstance(shap_values, np.ndarray) and len(shap_values.shape) == 3:
             # Filter misclassified_indices to only include valid indices
             valid_indices = misclassified_indices[misclassified_indices < len(shap_values)]
@@ -172,7 +221,7 @@ def analyze_rl_misclassifications(predictions: np.ndarray, true_labels: np.ndarr
                     logger.info(f"RL misclassified analysis plot saved to {misclassified_path}")
                 plt.close()
         else:
-            logger.warning(f"Unexpected SHAP values format for misclassification analysis")
+            logger.warning("Unexpected SHAP values format for misclassification analysis")
 
     except Exception as e:
         logger.error(f"Error in RL misclassification analysis: {str(e)}", exc_info=True)
@@ -184,15 +233,32 @@ def analyze_rl_misclassifications(predictions: np.ndarray, true_labels: np.ndarr
 def generate_rl_explanation(shap_values: np.ndarray, features: pd.DataFrame, 
                           prediction: int, class_names: List[str], 
                           top_k: int = 5) -> List[Dict]:
-    """Generate explanations for RL model predictions."""
+    """
+    Generate human-readable explanations of RL model decisions.
+
+    Similar to generate_binary_explanation() but handles multi-class predictions.
+    See binary_xai_utils.py for binary version.
+
+    Args:
+        shap_values: SHAP values from explain_rl_predictions()
+        features: Input feature DataFrame
+        prediction: Predicted class index
+        class_names: List of class names
+        top_k: Number of top features to include in explanation
+
+    Returns:
+        List[Dict]: Explanations for all classes, sorted by confidence
+    """
     try:
         explanations = []
         
         if len(shap_values.shape) == 3:
             sample_idx = 0
+            # Calculate total impact across all classes
             total_impact = np.sum([np.sum(np.abs(shap_values[sample_idx, :, i])) 
                                  for i in range(len(class_names))])
             
+            # Generate per-class explanations
             for class_idx in range(len(class_names)):
                 abs_shap = np.abs(shap_values[sample_idx, :, class_idx])
                 feature_importance = pd.DataFrame({
