@@ -36,7 +36,7 @@ import time
 from collections import Counter
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
-from utils.xai_utils import explain_predictions
+from utils.rl_xai_utils import explain_rl_predictions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -92,6 +92,11 @@ def main():
         multi_test_df = pd.read_csv(multi_test_path)
         logger.info(f"Test set class distribution:\n{multi_test_df['Label'].value_counts()}")
         
+        # Drop 'Dst Port' column before training
+        multi_train_df = multi_train_df.drop(columns=['Dst Port'])
+        multi_val_df = multi_val_df.drop(columns=['Dst Port'])
+        multi_test_df = multi_test_df.drop(columns=['Dst Port'])
+
         # Load label dictionary
         if not os.path.exists(label_dict_path):
             logger.error("Label dictionary not found. Please ensure it exists in the specified path.")
@@ -202,21 +207,23 @@ def main():
         # Log evaluation results
         if metrics:
             logger.info("Evaluation Results:")
-            logger.info(f"Accuracy: {metrics['accuracy']:.4f}")
-            logger.info("\nPer-class Results:")
-            for class_name, class_metrics in metrics['per_class'].items():
-                logger.info(f"\n{class_name}:")
-                logger.info(f"Precision: {class_metrics['precision']:.4f}")
-                logger.info(f"Recall: {class_metrics['recall']:.4f}")
-                logger.info(f"F1-score: {class_metrics['f1-score']:.4f}")
+            logger.info(f"Accuracy: {metrics.get('accuracy', 'N/A')}")
+            
+            # Check if per-class metrics exist in the report
+            for class_name in metrics:
+                if isinstance(metrics[class_name], dict) and 'precision' in metrics[class_name]:
+                    logger.info(f"\n{class_name}:")
+                    logger.info(f"Precision: {metrics[class_name]['precision']:.4f}")
+                    logger.info(f"Recall: {metrics[class_name]['recall']:.4f}")
+                    logger.info(f"F1-score: {metrics[class_name]['f1-score']:.4f}")
 
             # Add XAI analysis after evaluation
-            logger.info("\nGenerating XAI visualizations...")
+            logger.info("\nGenerating RL XAI visualizations...")
             xai_save_path = os.path.join(eval_save_path, 'xai')
             os.makedirs(xai_save_path, exist_ok=True)
             
-            # Generate SHAP explanations with optimized parameters
-            shap_values = explain_predictions(
+            # Use RL-specific SHAP explanations
+            shap_values = explain_rl_predictions(
                 model=session,
                 data=multi_test_df[multi_feature_cols].sample(n=1000, random_state=42),  # Sample subset
                 feature_names=multi_feature_cols,
@@ -226,7 +233,7 @@ def main():
             )
             
             if shap_values is not None:
-                logger.info("XAI visualizations saved to: " + xai_save_path)
+                logger.info("RL XAI visualizations saved to: " + xai_save_path)
 
         # Plot RL Training Metrics
         rl_metrics_plot_path = os.path.join("results", "multi_class_classification", "rl_training_metrics.png")
@@ -240,7 +247,7 @@ def main():
         torch.save(agent.qnetwork_local.state_dict(), rl_model_path)
         logger.info(f"RL Model saved to {rl_model_path}")
         
-        # After training, export the RL model to ONNX format
+        # After exporting the model to ONNX, ensure it matches the feature dimensions
         onnx_model_path = "models/rl_dqn_model.onnx"
         dummy_input = torch.randn(1, state_size).to(device)
         torch.onnx.export(

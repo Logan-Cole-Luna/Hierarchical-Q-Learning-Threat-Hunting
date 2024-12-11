@@ -46,6 +46,11 @@ def main():
         val_df = pd.read_csv(binary_val_path)    # Load validation data
         test_df = pd.read_csv(binary_test_path)
         
+        # Drop 'Dst Port' column before training
+        train_df = train_df.drop(columns=['Dst Port'])
+        val_df = val_df.drop(columns=['Dst Port'])
+        test_df = test_df.drop(columns=['Dst Port'])
+        
         # Ensure no overlap between train and test sets
         # Replace overlap check with hash-based method
         # overlap_exists = train_hashes.isin(test_hashes).any()
