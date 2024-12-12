@@ -81,7 +81,11 @@ def main():
     # Load test data
     binary_test_df = pd.read_csv(binary_test_path)
     multi_test_df = pd.read_csv(multi_test_path)
-
+    
+    # Drop 'Dst Port' column to match training data preprocessing
+    multi_test_df = multi_test_df.drop(columns=['Dst Port'])
+    binary_test_df = binary_test_df.drop(columns=['Dst Port'])
+    
     # Define feature columns based on the dataset
     binary_feature_cols = [col for col in binary_test_df.columns if col not in ['Label', 'Threat']]
 
