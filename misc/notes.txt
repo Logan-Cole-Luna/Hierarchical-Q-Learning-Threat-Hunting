@@ -1,3 +1,43 @@
+XAI:
+1. explain_*_predictions:
+- Binary version:
+
+Uses TreeExplainer (optimized for XGBoost/tree-based models)
+Handles binary classification (2 classes)
+Works directly with scikit-learn/XGBoost models
+Generates simpler SHAP values (one or two sets for binary case)
+- RL version:
+
+Uses KernelExplainer (works with any model, including ONNX)
+Handles multi-class classification
+Works with ONNX inference sessions
+Generates more complex SHAP values (one set per class)
+
+2. analyze_*_misclassifications:
+- Binary version:
+
+Only needs to consider false positives/negatives
+Simpler SHAP value handling (usually just uses positive class)
+Visualization focuses on binary decision boundary
+- RL version:
+
+Handles confusion between multiple classes
+More complex SHAP value averaging across classes
+Visualization shows feature importance for all misclassification types
+
+3. generate_*_explanation:
+- Binary version:
+
+Only generates explanations for two classes (benign/malicious)
+Simpler confidence calculation
+Returns explanations focused on binary decision
+- RL version:
+
+Generates explanations for all possible classes
+More complex confidence calculation considering all class impacts
+Returns ranked explanations across all classes with relative confidences
+
+
 
 Dataset Info:
 	1.	Destination Port: Port number of the destination (receiver).

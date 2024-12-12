@@ -18,8 +18,8 @@ import os
 import logging
 import onnxruntime as ort
 import warnings
-from utils.binary_xai_utils import explain_binary_predictions, analyze_binary_misclassifications, generate_binary_explanation
-from utils.rl_xai_utils import explain_rl_predictions, analyze_rl_misclassifications, generate_rl_explanation
+from utils.binary_xai_utils import explain_binary_predictions, generate_binary_explanation #, analyze_binary_misclassifications
+from utils.rl_xai_utils import explain_rl_predictions, generate_rl_explanation #, analyze_rl_misclassifications
 
 # Add these at the top of the file
 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.metrics._classification')
@@ -165,6 +165,7 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
         )
         
         if shap_values is not None:
+            '''
             analyze_binary_misclassifications(
                 predictions=shap_subset_pred[:max_samples],  # Limit to max_samples
                 true_labels=shap_subset_true[:max_samples],  # Limit to max_samples
@@ -172,6 +173,7 @@ def evaluate_binary_classifier(binary_agent, binary_test_df, batch_size=256, sav
                 feature_names=binary_agent.feature_cols,
                 save_path=save_path
             )
+            '''
             
             # Add this section to generate and log explanations
             sample_idx = 0
@@ -345,6 +347,8 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
                 'f1-score': report[class_name]['f1-score']
             }
     
+    ## SHAP
+    
     # Get subset of data for SHAP analysis
     max_samples = 50  # Limit samples for SHAP analysis
     shap_subset_df = test_df.sample(n=min(max_samples, len(test_df)), random_state=42)
@@ -368,10 +372,11 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
                 data=shap_subset_df[feature_cols],  # Limit input data
                 feature_names=feature_cols,
                 save_path=save_path,
-                max_samples=max_samples
+                num_samples=max_samples
             )
             
             if shap_values is not None:
+                '''
                 analyze_rl_misclassifications(
                     predictions=shap_subset_pred,
                     true_labels=shap_subset_true,
@@ -379,12 +384,14 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
                     feature_names=feature_cols,
                     save_path=save_path
                 )
+                '''
     except Exception as e:
         logger.warning(f"SHAP analysis failed: {str(e)}")
         shap_values = None
     
     if shap_values is not None:
         # Use RL-specific analysis functions
+        '''
         analyze_rl_misclassifications(
             predictions=shap_subset_pred,
             true_labels=shap_subset_true,
@@ -392,7 +399,7 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
             feature_names=feature_cols,
             save_path=save_path
         )
-        
+        '''
         # Generate example explanations using RL-specific function
         sample_idx = 0
         explanations = generate_rl_explanation(
@@ -401,6 +408,7 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
             prediction=shap_subset_pred[sample_idx],
             class_names=list(label_mapping.keys())
         )
+        
         logger.info("\nExample Prediction Explanations:")
         for explanation in explanations:
             if explanation['is_predicted_class']:
@@ -412,6 +420,8 @@ def evaluate_rl_agent(session, test_df, feature_cols, label_col, label_mapping, 
             for feature in explanation['top_features']:
                 logger.info(f"  - {feature['feature']}: {feature['importance']:.4f}")
 
+    ## VISUALS
+    
     # Generate Confusion Matrix
     cm = confusion_matrix(y_test_encoded, y_pred)
     cm_normalized = confusion_matrix(y_test_encoded, y_pred, normalize='true')

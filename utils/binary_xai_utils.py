@@ -14,6 +14,8 @@ Key Features:
 See Also:
     - utils/rl_xai_utils.py: Similar implementation for multi-class RL models
     - utils/evaluation.py: Uses these utilities for model evaluation
+    - https://shap.readthedocs.io/en/latest/index.html
+    - https://arxiv.org/abs/2306.05810?utm_source
 """
 
 import shap
@@ -27,9 +29,7 @@ from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
-# Ensure matplotlib is using a suitable backend
-matplotlib.use('TkAgg')  # Or 'Agg' if running without a display server
-
+# Description: Generates SHAP explanations for binary classifier predictions using TreeExplainer.
 def explain_binary_predictions(model, data: pd.DataFrame, feature_names: List[str], 
                             save_path: str = None, max_samples: int = 1000):
     """
@@ -116,6 +116,8 @@ def explain_binary_predictions(model, data: pd.DataFrame, feature_names: List[st
         logger.error(f"Error generating binary SHAP explanations: {str(e)}", exc_info=True)
         return None
 
+# Description: Analyzes misclassified samples in binary classification to understand prediction errors.
+'''
 def analyze_binary_misclassifications(predictions: np.ndarray, true_labels: np.ndarray, 
                                     shap_values: np.ndarray, feature_names: List[str], 
                                     save_path: str):
@@ -168,7 +170,9 @@ def analyze_binary_misclassifications(predictions: np.ndarray, true_labels: np.n
             logger.info("No misclassified SHAP values to plot.")
     except Exception as e:
         logger.error(f"Error in binary misclassification analysis: {str(e)}", exc_info=True)
+'''
 
+# Description: Generates human-readable explanations of binary classification decisions based on SHAP values.
 def generate_binary_explanation(shap_values: np.ndarray, features: pd.DataFrame, 
                               prediction: int, class_names: List[str], 
                               top_k: int = 5) -> List[Dict]:
