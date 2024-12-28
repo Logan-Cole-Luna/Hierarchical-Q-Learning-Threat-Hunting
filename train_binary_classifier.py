@@ -81,6 +81,8 @@ def main():
             class_weights_path=class_weights_path,
             label_dict_path=label_dict_path  # This parameter can remain or be removed if not used elsewhere
         )
+        print("Binary Agent Local Structure:")
+        print(binary_agent.model)  # Print Binary Classifier model architecture
         
         # Train Binary Classifier with validation data
         logger.info("Starting training of Binary Classifier...")
